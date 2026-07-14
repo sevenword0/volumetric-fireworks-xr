@@ -165,15 +165,37 @@
             </div>
           </div>
         </div>
-        <div class="accordion">
-          <button class="accordion-title" type="button"><span>QUALITY</span><i>＋</i></button>
+        <div class="accordion open">
+          <button class="accordion-title" type="button"><span>QUALITY</span><i>−</i></button>
           <div class="accordion-body">
             <label class="select-label">렌더 품질<select id="quality-select"><option value="auto">자동</option><option value="high">높음</option><option value="medium">중간</option><option value="low">낮음</option></select></label>
+            <label class="select-label quality-select-gap">파티클 블렌딩<select id="particle-blend"><option value="additive">가산 발광 · ADD</option><option value="screen">스크린 · SCREEN</option><option value="alpha">알파 · SOFT</option></select></label>
+            <div class="range-stack quality-ranges">
+              <label><span>블룸 강도 <output id="bloom-strength-out">0.55×</output></span><input id="bloom-strength" type="range" min="0" max="3" value="0.55" step="0.05" /></label>
+              <label><span>블룸 반경 <output id="bloom-radius-out">0.58</output></span><input id="bloom-radius" type="range" min="0" max="1" value="0.58" step="0.02" /></label>
+              <label><span>블룸 임계값 <output id="bloom-threshold-out">0.78</output></span><input id="bloom-threshold" type="range" min="0" max="2" value="0.78" step="0.02" /></label>
+              <label><span>채도 <output id="saturation-out">100%</output></span><input id="saturation" type="range" min="0" max="2" value="1" step="0.05" /></label>
+              <label><span>모션 블러 <output id="motion-blur-out">35%</output></span><input id="motion-blur" type="range" min="0" max="3" value="0.35" step="0.01" /></label>
+            </div>
             <div class="toggle-row vertical">
               <label><input id="bloom-toggle" type="checkbox" checked /><span></span>발광 블룸</label>
               <label><input id="shadow-toggle" type="checkbox" checked /><span></span>동적 그림자</label>
               <label><input id="adaptive-toggle" type="checkbox" checked /><span></span>적응형 해상도</label>
             </div>
+            <p class="control-note">모션 블러는 속도 버퍼 기반이며 XR에서는 시야 안정성을 위해 자동으로 제외됩니다.</p>
+          </div>
+        </div>
+        <div class="accordion open">
+          <button class="accordion-title" type="button"><span>SOUND & IMPACT</span><i>−</i></button>
+          <div class="accordion-body">
+            <div class="toggle-row vertical sound-toggle-row">
+              <label><input id="sound-toggle" type="checkbox" checked /><span></span>거리 기반 폭발 사운드</label>
+            </div>
+            <div class="impact-status"><span>오디오 엔진</span><output id="sound-status">입력 후 활성</output></div>
+            <div class="range-stack">
+              <label><span>폭발음 볼륨 <output id="sound-volume-out">72%</output></span><input id="sound-volume" type="range" min="0" max="1" value="0.72" step="0.02" /></label>
+            </div>
+            <p class="control-note">포탄 크기·별 수·크랙클 성분과 관찰 거리에 따라 저역 충격음, 파열음, 도달 지연이 달라집니다.</p>
           </div>
         </div>
       </aside>
@@ -212,7 +234,7 @@
             <li><span>02</span> 중력·항력·바람·보텍스·충돌 상호작용</li>
             <li><span>03</span> 로컬 음악 분석 자동 큐 + XR 큐브 UI</li>
           </ul>
-          <button class="primary-button start-button" id="start-experience" type="button">스튜디오 시작 <span>→</span></button>
+          <button class="primary-button start-button" id="start-experience" type="button" disabled>스튜디오 시작 <span>→</span></button>
           <small class="privacy-note">파일은 기기 밖으로 전송되지 않습니다</small>
         </div>
       </dialog>

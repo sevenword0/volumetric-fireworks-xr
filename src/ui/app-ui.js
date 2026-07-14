@@ -21,6 +21,12 @@ const FORMATTERS = {
   'volume.shadow': (value) => value.toFixed(2),
   'world.waterRoughness': (value) => value.toFixed(2),
   'world.reflection': (value) => value.toFixed(2),
+  'quality.bloomStrength': (value) => `${value.toFixed(2)}×`,
+  'quality.bloomRadius': (value) => value.toFixed(2),
+  'quality.bloomThreshold': (value) => value.toFixed(2),
+  'quality.saturation': (value) => `${Math.round(value * 100)}%`,
+  'quality.motionBlur': (value) => `${Math.round(value * 100)}%`,
+  'sound.volume': (value) => `${Math.round(value * 100)}%`,
   'show.sensitivity': (value) => `${Math.round(value * 100)}%`,
   'show.density': (value) => `${Math.round(value * 100)}%`,
   'show.variety': (value) => `${Math.round(value * 100)}%`,
@@ -39,6 +45,12 @@ const RANGE_BINDINGS = [
   ['volume-shadow', 'volume.shadow'],
   ['water-roughness', 'world.waterRoughness'],
   ['reflection', 'world.reflection'],
+  ['bloom-strength', 'quality.bloomStrength'],
+  ['bloom-radius', 'quality.bloomRadius'],
+  ['bloom-threshold', 'quality.bloomThreshold'],
+  ['saturation', 'quality.saturation'],
+  ['motion-blur', 'quality.motionBlur'],
+  ['sound-volume', 'sound.volume'],
   ['beat-sensitivity', 'show.sensitivity', 0.01],
   ['show-density', 'show.density', 0.01],
   ['show-variety', 'show.variety', 0.01],
@@ -105,7 +117,8 @@ export class AppUI extends EventTarget {
       'design-count-out', 'design-size-out', 'design-trail-out', 'design-life-out', 'design-strobe', 'design-split', 'design-color-shift',
       'save-design', 'launch-design', 'shell-preview', 'custom-code', 'custom-title',
       'audio-drop', 'audio-input', 'audio-info', 'audio-name', 'audio-meta', 'audio-remove', 'audio-timeline', 'music-bpm', 'music-cues', 'music-length',
-      'generate-show', 'play-show', 'environment-select', 'environment-input', 'floor-mode', 'quality-select', 'bloom-toggle', 'shadow-toggle', 'adaptive-toggle',
+      'generate-show', 'play-show', 'environment-select', 'environment-input', 'floor-mode', 'quality-select', 'particle-blend',
+      'bloom-toggle', 'shadow-toggle', 'adaptive-toggle', 'sound-toggle', 'sound-status',
     ];
     for (const id of ids) this.elements[id.replaceAll('-', '')] = document.getElementById(id);
   }
@@ -456,6 +469,12 @@ export class AppUI extends EventTarget {
       this.store.set('quality.preset', value);
       this.dispatchEvent(new CustomEvent('quality', { detail: { value } }));
     });
+    this.elements.particleblend.value = this.state.quality.particleBlend;
+    this.elements.particleblend.addEventListener('change', () => {
+      const value = this.elements.particleblend.value;
+      this.store.set('quality.particleBlend', value);
+      this.dispatchEvent(new CustomEvent('statechange', { detail: { path: 'quality.particleBlend', value } }));
+    });
     for (const [element, key] of [[this.elements.bloomtoggle, 'bloom'], [this.elements.shadowtoggle, 'shadows'], [this.elements.adaptivetoggle, 'adaptive']]) {
       element.checked = this.state.quality[key];
       element.addEventListener('change', () => {
@@ -463,6 +482,11 @@ export class AppUI extends EventTarget {
         this.dispatchEvent(new CustomEvent('qualitytoggle', { detail: { key, value: element.checked } }));
       });
     }
+    this.elements.soundtoggle.checked = this.state.sound.enabled;
+    this.elements.soundtoggle.addEventListener('change', () => {
+      this.store.set('sound.enabled', this.elements.soundtoggle.checked);
+      this.dispatchEvent(new CustomEvent('soundtoggle', { detail: { value: this.elements.soundtoggle.checked } }));
+    });
   }
 
   bindLaunchDeck() {
@@ -586,11 +610,22 @@ export class AppUI extends EventTarget {
     this.elements.launchlayout.value = this.state.launchLayout;
     this.elements.environmentselect.value = this.state.world.environment;
     this.elements.floormode.querySelectorAll('button').forEach((button) => button.classList.toggle('active', button.dataset.value === this.state.world.floor));
+    this.elements.qualityselect.value = this.state.quality.preset;
+    this.elements.particleblend.value = this.state.quality.particleBlend;
+    this.elements.bloomtoggle.checked = this.state.quality.bloom;
+    this.elements.shadowtoggle.checked = this.state.quality.shadows;
+    this.elements.adaptivetoggle.checked = this.state.quality.adaptive;
+    this.elements.soundtoggle.checked = this.state.sound.enabled;
+    this.setSoundStatus(this.state.sound.enabled ? '입력 후 활성' : 'MUTED');
   }
 
   setRendererStatus({ webgpu, label }) {
     this.elements.rendererbadge.classList.toggle('fallback', !webgpu);
     this.elements.rendererbadge.querySelector('b').textContent = label ?? (webgpu ? 'WEBGPU' : 'WEBGL 2');
+  }
+
+  setReady() {
+    this.elements.startexperience.disabled = false;
   }
 
   setXRAvailable(available, label = null) {
@@ -603,6 +638,11 @@ export class AppUI extends EventTarget {
     this.elements.fpsreadout.textContent = Number.isFinite(fps) ? String(Math.round(fps)) : '--';
     this.elements.particlereadout.textContent = particles > 9999 ? `${(particles / 1000).toFixed(1)}K` : String(particles);
     if (volume) this.elements.volumereadout.textContent = volume;
+  }
+
+  setSoundStatus(label, active = false) {
+    this.elements.soundstatus.textContent = label;
+    this.elements.soundstatus.classList.toggle('active', active);
   }
 
   updatePlayhead(time) {

@@ -24,8 +24,18 @@ export const DEFAULT_STATE = Object.freeze({
   quality: {
     preset: 'auto',
     bloom: true,
+    bloomStrength: 0.55,
+    bloomRadius: 0.58,
+    bloomThreshold: 0.78,
+    saturation: 1,
+    motionBlur: 0.35,
+    particleBlend: 'additive',
     shadows: true,
     adaptive: true,
+  },
+  sound: {
+    enabled: true,
+    volume: 0.72,
   },
   show: {
     sensitivity: 0.68,
@@ -72,8 +82,18 @@ export function sanitizeState(candidate = {}) {
     quality: {
       preset: allowed(candidate.quality?.preset, ['auto', 'high', 'medium', 'low'], DEFAULT_STATE.quality.preset),
       bloom: candidate.quality?.bloom !== false,
+      bloomStrength: finite(candidate.quality?.bloomStrength, DEFAULT_STATE.quality.bloomStrength, 0, 3),
+      bloomRadius: finite(candidate.quality?.bloomRadius, DEFAULT_STATE.quality.bloomRadius, 0, 1),
+      bloomThreshold: finite(candidate.quality?.bloomThreshold, DEFAULT_STATE.quality.bloomThreshold, 0, 2),
+      saturation: finite(candidate.quality?.saturation, DEFAULT_STATE.quality.saturation, 0, 2),
+      motionBlur: finite(candidate.quality?.motionBlur, DEFAULT_STATE.quality.motionBlur, 0, 3),
+      particleBlend: allowed(candidate.quality?.particleBlend, ['additive', 'screen', 'alpha'], DEFAULT_STATE.quality.particleBlend),
       shadows: candidate.quality?.shadows !== false,
       adaptive: candidate.quality?.adaptive !== false,
+    },
+    sound: {
+      enabled: candidate.sound?.enabled !== false,
+      volume: finite(candidate.sound?.volume, DEFAULT_STATE.sound.volume, 0, 1),
     },
     show: {
       sensitivity: finite(candidate.show?.sensitivity, DEFAULT_STATE.show.sensitivity, 0, 1),
@@ -130,4 +150,3 @@ export function createAppState(storage = globalThis.localStorage) {
     },
   };
 }
-

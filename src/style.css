@@ -637,6 +637,52 @@ select {
   gap: 12px;
 }
 
+.quality-select-gap {
+  margin-top: 10px;
+}
+
+.quality-ranges {
+  margin-top: 14px;
+}
+
+.sound-toggle-row {
+  margin-top: 0;
+  margin-bottom: 14px;
+}
+
+.control-note {
+  margin: 12px 0 0;
+  color: var(--dim);
+  font-size: 7px;
+  line-height: 1.55;
+}
+
+.impact-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 0 14px;
+  padding: 8px 9px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.025);
+  color: #8d99ae;
+  font-size: 8px;
+}
+
+.impact-status output {
+  padding: 3px 6px;
+  border-radius: 4px;
+  background: rgba(94, 233, 255, 0.08);
+  letter-spacing: 0.06em;
+}
+
+.impact-status output.active {
+  color: #baffdd;
+  background: rgba(112, 255, 185, 0.12);
+  box-shadow: 0 0 12px rgba(112, 255, 185, 0.12);
+}
+
 .range-stack label {
   display: flex;
   flex-direction: column;
@@ -1377,6 +1423,12 @@ dialog::backdrop {
 
 .start-button span {
   font-size: 16px;
+}
+
+.start-button:disabled {
+  cursor: wait;
+  opacity: 0.46;
+  filter: saturate(0.45);
 }
 
 .privacy-note {

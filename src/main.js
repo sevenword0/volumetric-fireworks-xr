@@ -1,10 +1,12 @@
 import './style.css';
 import * as THREE from 'three/webgpu';
-import { pass } from 'three/tsl';
+import { int, mrt, output, pass, saturation, uniform, vec4, velocity } from 'three/tsl';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { bloom } from 'three/addons/tsl/display/BloomNode.js';
+import { motionBlur } from 'three/addons/tsl/display/MotionBlur.js';
 import WebGPU from 'three/addons/capabilities/WebGPU.js';
 import { AudioShowController, getPresetForCue } from './audio/audio-show.js';
+import { FireworkSoundEngine } from './audio/firework-sound.js';
 import { createAppState } from './core/state.js';
 import { FIREWORK_PRESETS } from './pyro/presets.js';
 import { FireworkEngine } from './pyro/firework-engine.js';
@@ -18,6 +20,7 @@ const store = createAppState();
 const audio = new AudioShowController();
 const ui = new AppUI(store, audio);
 const state = store.state;
+const fireworkSound = new FireworkSoundEngine(state);
 
 const scene = new THREE.Scene();
 scene.name = 'PYROVERSE XR scene';
@@ -60,7 +63,9 @@ let xrCube;
 let renderPipeline;
 let bloomNode;
 let scenePass;
-let usePostProcessing = state.quality.bloom;
+let saturationAmount;
+let motionBlurAmount;
+let usePostProcessing = true;
 let renderFailedOver = false;
 let xrSession = null;
 let showCues = [];
@@ -82,6 +87,8 @@ const interactionPlane = new THREE.Plane();
 const interactionPoint = new THREE.Vector3();
 const interactionPrevious = new THREE.Vector3();
 const cameraDirection = new THREE.Vector3();
+const listenerPosition = new THREE.Vector3();
+const listenerRight = new THREE.Vector3();
 const planePoint = new THREE.Vector3(0, 22, 0);
 
 async function initialize() {
@@ -122,6 +129,7 @@ async function initialize() {
       world,
       ui,
       audio,
+      fireworkSound,
       state,
       launch: (presetId = state.selectedPresetId, layout = state.launchLayout) => launchPreset(FIREWORK_PRESETS.find((preset) => preset.id === presetId) ?? FIREWORK_PRESETS[0], layout),
       clear: () => { engine.clear(); fluid.clear(); },
@@ -132,8 +140,24 @@ async function initialize() {
         volumeGrid: [fluid.nx, fluid.ny, fluid.nz],
         xrPresenting: renderer.xr.isPresenting,
         fps: fpsAverage,
+        effects: {
+          bloom: state.quality.bloom,
+          bloomStrength: state.quality.bloomStrength,
+          bloomRadius: state.quality.bloomRadius,
+          bloomThreshold: state.quality.bloomThreshold,
+          saturation: state.quality.saturation,
+          motionBlur: state.quality.motionBlur,
+          particleBlend: engine.blendingMode,
+        },
+        sound: {
+          enabled: state.sound.enabled,
+          volume: state.sound.volume,
+          activeVoices: fireworkSound.activeVoices,
+          ready: fireworkSound.context?.state === 'running',
+        },
       }),
     };
+    ui.setReady();
     window.dispatchEvent(new CustomEvent('pyroverse-ready'));
   } catch (error) {
     console.error('PYROVERSE initialization failed', error);
@@ -145,17 +169,55 @@ async function initialize() {
 
 function setupPostProcessing() {
   scenePass = pass(scene, camera);
+  scenePass.setMRT(mrt({ output, velocity }));
   const sceneColor = scenePass.getTextureNode();
-  bloomNode = bloom(sceneColor);
-  bloomNode.threshold.value = 0.78;
-  bloomNode.strength.value = 0.55;
-  bloomNode.radius.value = 0.58;
+  saturationAmount = uniform(state.quality.saturation);
+  motionBlurAmount = uniform(state.quality.motionBlur);
+  const velocityTexture = scenePass.getTextureNode('velocity').mul(motionBlurAmount);
+  const motionColor = motionBlur(sceneColor, velocityTexture, int(8));
+  bloomNode = bloom(motionColor);
+  const composite = motionColor.add(bloomNode);
   renderPipeline = new THREE.RenderPipeline(renderer);
-  renderPipeline.outputNode = sceneColor.add(bloomNode);
+  renderPipeline.outputNode = vec4(saturation(composite.rgb, saturationAmount), composite.a);
+  syncPostProcessing();
+}
+
+function syncPostProcessing() {
+  if (!bloomNode || !saturationAmount || !motionBlurAmount) return;
+  bloomNode.threshold.value = state.quality.bloomThreshold;
+  bloomNode.strength.value = state.quality.bloom ? state.quality.bloomStrength : 0;
+  bloomNode.radius.value = state.quality.bloomRadius;
+  saturationAmount.value = state.quality.saturation;
+  motionBlurAmount.value = state.quality.motionBlur;
+  usePostProcessing = state.quality.bloom || state.quality.motionBlur > 0.001 || Math.abs(state.quality.saturation - 1) > 0.001;
+}
+
+async function armFireworkSound() {
+  if (!state.sound.enabled) {
+    ui.setSoundStatus('MUTED');
+    return false;
+  }
+  try {
+    ui.setSoundStatus('연결 중');
+    const ready = await fireworkSound.resume();
+    ui.setSoundStatus(ready ? 'READY' : '브라우저 대기', ready);
+    return ready;
+  } catch (error) {
+    console.warn('Firework audio could not start', error);
+    ui.setSoundStatus('지원 안 됨');
+    return false;
+  }
 }
 
 function wireEngineEvents() {
-  engine.addEventListener('burst', (event) => world.addBurstLight(event.detail));
+  engine.addEventListener('burst', (event) => {
+    world.addBurstLight(event.detail);
+    camera.updateMatrixWorld();
+    camera.getWorldPosition(listenerPosition);
+    listenerRight.setFromMatrixColumn(camera.matrixWorld, 0).normalize();
+    const result = fireworkSound.playBurst(event.detail, { position: listenerPosition, right: listenerRight });
+    if (result) ui.setSoundStatus(`IMPACT +${Math.round(result.delay * 1000)}ms`, true);
+  });
   engine.addEventListener('ripple', (event) => {
     if (state.world.floor === 'water') world.addRipple(event.detail.position, event.detail.strength);
   });
@@ -163,13 +225,18 @@ function wireEngineEvents() {
 
 function setupUIEvents() {
   ui.addEventListener('start', () => {
+    void armFireworkSound();
     started = true;
     ui.toast('스튜디오 활성화 · SPACE로 발사하세요');
     engine.schedule(FIREWORK_PRESETS[4], { x: -7, delay: 0.15, scale: 0.92 });
     engine.schedule(FIREWORK_PRESETS[0], { x: 7, delay: 0.58, scale: 1.08 });
   });
-  ui.addEventListener('launch', (event) => launchPreset(event.detail.preset, event.detail.layout));
-  ui.addEventListener('launchcustom', (event) => launchPreset(event.detail.preset, state.launchLayout));
+  ui.addEventListener('launch', (event) => {
+    launchPreset(event.detail.preset, event.detail.layout);
+  });
+  ui.addEventListener('launchcustom', (event) => {
+    launchPreset(event.detail.preset, state.launchLayout);
+  });
   ui.addEventListener('tool', () => {
     controls.enabled = state.tool === 'camera' && !renderer.xr.isPresenting;
     canvas.style.cursor = state.tool === 'camera' ? 'grab' : 'crosshair';
@@ -187,7 +254,7 @@ function setupUIEvents() {
   ui.addEventListener('floormode', (event) => world.setFloorMode(event.detail.value));
   ui.addEventListener('quality', (event) => applyQuality(event.detail.value === 'auto' ? resolveQuality() : event.detail.value));
   ui.addEventListener('qualitytoggle', (event) => {
-    if (event.detail.key === 'bloom') usePostProcessing = event.detail.value;
+    if (event.detail.key === 'bloom') syncPostProcessing();
     if (event.detail.key === 'shadows') {
       world.setShadows(event.detail.value);
       fluid.shadowMesh.visible = event.detail.value && fluid.enabled;
@@ -195,12 +262,21 @@ function setupUIEvents() {
   });
   ui.addEventListener('statechange', (event) => {
     if (event.detail.path === 'volume.smoke') fluid.setVisible(event.detail.value > 0.001);
+    if (event.detail.path.startsWith('quality.')) syncPostProcessing();
+    if (event.detail.path === 'quality.particleBlend') engine.setBlendingMode(event.detail.value);
+    if (event.detail.path === 'sound.volume') fireworkSound.setVolume();
+  });
+  ui.addEventListener('soundtoggle', (event) => {
+    fireworkSound.setEnabled();
+    if (event.detail.value) void armFireworkSound();
+    else ui.setSoundStatus('MUTED');
   });
   ui.addEventListener('showgenerated', (event) => {
     showCues = event.detail.cues;
     nextCueIndex = 0;
   });
   ui.addEventListener('showplay', (event) => {
+    void armFireworkSound();
     showCues = event.detail.cues;
     const current = audio.currentTime;
     nextCueIndex = Math.max(0, showCues.findIndex((cue) => cue.time >= current - 0.04));
@@ -414,6 +490,7 @@ const RANGE_BINDINGS_FOR_CUBE = Object.freeze({
 
 function launchPreset(preset, layout = 'single', options = {}) {
   if (!engine || !preset) return;
+  void armFireworkSound();
   const count = engine.launchLayout(preset, layout, options);
   ui.toast(`${preset.name} · ${layout.toUpperCase()} ${count}발`);
 }
@@ -490,13 +567,12 @@ function qualityParticleLimit(quality) {
 function applyQuality(quality) {
   if (!fluid || !world) return;
   const settings = {
-    high: { pixelRatio: 1.7, bloom: 0.62, radius: 0.62, reflection: 0.45 },
-    medium: { pixelRatio: 1.35, bloom: 0.5, radius: 0.52, reflection: 0.33 },
-    low: { pixelRatio: 1, bloom: 0.36, radius: 0.4, reflection: 0.2 },
-  }[quality] ?? { pixelRatio: 1.35, bloom: 0.5, radius: 0.52, reflection: 0.33 };
+    high: { pixelRatio: 1.7, reflection: 0.45 },
+    medium: { pixelRatio: 1.35, reflection: 0.33 },
+    low: { pixelRatio: 1, reflection: 0.2 },
+  }[quality] ?? { pixelRatio: 1.35, reflection: 0.33 };
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, settings.pixelRatio));
-  bloomNode.strength.value = settings.bloom;
-  bloomNode.radius.value = settings.radius;
+  syncPostProcessing();
   world.reflectionNode.resolutionScale = settings.reflection;
   fluid.setQuality(quality);
   adaptiveLevel = quality === 'high' ? 0 : quality === 'medium' ? 1 : 2;

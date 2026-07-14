@@ -82,16 +82,19 @@ export class FireworkEngine extends EventTarget {
     this.alphaAttribute = new THREE.InstancedBufferAttribute(this.alphaArray, 1).setUsage(THREE.DynamicDrawUsage);
 
     const material = new THREE.SpriteNodeMaterial();
+    this.particleColorNode = instancedBufferAttribute(this.colorAttribute);
+    this.particleOpacityNode = instancedBufferAttribute(this.alphaAttribute).mul(shapeCircle());
     material.positionNode = instancedBufferAttribute(this.positionAttribute);
-    material.colorNode = instancedBufferAttribute(this.colorAttribute);
+    material.colorNode = this.particleColorNode;
     material.scaleNode = instancedBufferAttribute(this.scaleAttribute);
-    material.opacityNode = instancedBufferAttribute(this.alphaAttribute).mul(shapeCircle());
+    material.opacityNode = this.particleOpacityNode;
     material.transparent = true;
     material.depthWrite = false;
     material.depthTest = true;
-    material.blending = THREE.AdditiveBlending;
     material.alphaToCoverage = true;
     material.toneMapped = false;
+    this.material = material;
+    this.setBlendingMode(state.quality.particleBlend);
 
     this.sprite = new THREE.Sprite(material);
     this.sprite.name = 'Firework particle field';
@@ -103,6 +106,26 @@ export class FireworkEngine extends EventTarget {
 
   connectFluid(fluid) {
     this.fluid = fluid;
+  }
+
+  setBlendingMode(mode) {
+    const next = ['additive', 'screen', 'alpha'].includes(mode) ? mode : 'additive';
+    this.blendingMode = next;
+    this.material.colorNode = next === 'screen' ? this.particleColorNode.mul(this.particleOpacityNode) : this.particleColorNode;
+    this.material.premultipliedAlpha = next === 'screen';
+
+    if (next === 'screen') {
+      this.material.blending = THREE.CustomBlending;
+      this.material.blendEquation = THREE.AddEquation;
+      this.material.blendSrc = THREE.OneMinusDstColorFactor;
+      this.material.blendDst = THREE.OneFactor;
+      this.material.blendSrcAlpha = THREE.OneFactor;
+      this.material.blendDstAlpha = THREE.OneMinusSrcAlphaFactor;
+    } else {
+      this.material.blending = next === 'alpha' ? THREE.NormalBlending : THREE.AdditiveBlending;
+    }
+    this.material.needsUpdate = true;
+    return next;
   }
 
   setColliders(colliders) {
@@ -610,4 +633,3 @@ export class FireworkEngine extends EventTarget {
     this.alphaAttribute.array = null;
   }
 }
-

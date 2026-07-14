@@ -5,7 +5,7 @@ const root = process.cwd();
 const required = [
   'index.html', 'package.json', 'vite.config.js', 'public/.nojekyll',
   'src/main.js', 'src/style.css', 'src/pyro/presets.js', 'src/pyro/patterns.js',
-  'src/pyro/firework-engine.js', 'src/volume/fluid-volume.js', 'src/audio/audio-show.js',
+  'src/pyro/firework-engine.js', 'src/volume/fluid-volume.js', 'src/audio/audio-show.js', 'src/audio/firework-sound.js',
   'src/ui/app-ui.js', 'src/ui/xr-cube-ui.js', 'src/scene/world.js',
   '.github/workflows/pages.yml',
 ];
@@ -50,4 +50,3 @@ for (const action of ['actions/checkout@v7', 'actions/setup-node@v7', 'actions/c
 }
 
 console.log(`source check passed (${files.length} files, ${required.length} required artifacts)`);
-
