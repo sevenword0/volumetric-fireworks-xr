@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#05070d" />
+    <meta
+      name="description"
+      content="WebGPU 기반 3D 볼류메트릭 불꽃 설계, 음악 자동 쇼, WebXR 큐브 UI 시뮬레이터"
+    />
+    <title>PYROVERSE XR — Volumetric Fireworks Studio</title>
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="stage" aria-label="3D 불꽃놀이 시뮬레이션 뷰포트"></canvas>
+
+      <header class="topbar glass" aria-label="상태 표시줄">
+        <a class="brand" href="#" aria-label="PYROVERSE XR 홈">
+          <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+          <span><b>PYROVERSE</b><small>XR / VOLUMETRIC LAB</small></span>
+        </a>
+        <div class="telemetry" aria-live="polite">
+          <span class="status-pill" id="renderer-badge"><i></i><b>GPU 확인 중</b></span>
+          <span><small>FPS</small><b id="fps-readout">--</b></span>
+          <span><small>PARTICLES</small><b id="particle-readout">0</b></span>
+          <span class="desktop-only"><small>VOLUME</small><b id="volume-readout">32³</b></span>
+        </div>
+        <div class="top-actions">
+          <button class="icon-button" id="help-button" type="button" aria-label="도움말">?</button>
+          <button class="xr-button" id="xr-button" type="button" disabled>
+            <span class="xr-cube-icon" aria-hidden="true"></span>
+            <span>XR VIEW</span>
+          </button>
+        </div>
+      </header>
+
+      <aside class="panel panel-left glass" id="studio-panel" aria-label="불꽃 스튜디오">
+        <div class="panel-heading">
+          <div><p class="eyebrow">SHOW LAB</p><h1>불꽃 스튜디오</h1></div>
+          <button class="panel-collapse" type="button" data-collapse="studio-panel" aria-label="패널 접기">‹</button>
+        </div>
+        <nav class="tabbar" aria-label="스튜디오 메뉴">
+          <button class="active" type="button" data-tab="library">라이브러리</button>
+          <button type="button" data-tab="composer">조합 설계</button>
+          <button type="button" data-tab="music">음악 쇼</button>
+        </nav>
+
+        <section class="tab-panel active" data-tab-panel="library">
+          <div class="section-row">
+            <label class="search-field"><span aria-hidden="true">⌕</span><input id="preset-search" type="search" placeholder="프리셋 검색" /></label>
+            <select id="preset-category" aria-label="프리셋 분류">
+              <option value="all">전체 계열</option>
+              <option value="shell">구형 포탄</option>
+              <option value="shape">도형</option>
+              <option value="cascade">낙하·폭포</option>
+              <option value="split">분열·크랙클</option>
+              <option value="ground">지상·발사</option>
+              <option value="art">아트 쇼</option>
+            </select>
+          </div>
+          <div class="preset-grid" id="preset-grid" role="listbox" aria-label="불꽃 프리셋"></div>
+        </section>
+
+        <section class="tab-panel" data-tab-panel="composer">
+          <div class="composer-summary" id="composer-preview">
+            <canvas id="shell-preview" width="160" height="160" aria-label="포탄 별 배치 미리보기"></canvas>
+            <div><p class="eyebrow">SHELL BLUEPRINT</p><h2 id="custom-title">나만의 불꽃</h2><p id="custom-code">PEONY / COMET / PISTIL</p></div>
+          </div>
+          <div class="control-grid compact">
+            <label>형상<select id="design-pattern"></select></label>
+            <label>별 효과<select id="design-star"></select></label>
+            <label>중심핵<select id="design-pistil"></select></label>
+            <label>색 조합<select id="design-palette"></select></label>
+          </div>
+          <div class="range-stack">
+            <label><span>별 수 <output id="design-count-out">180</output></span><input id="design-count" type="range" min="24" max="420" value="180" step="4" /></label>
+            <label><span>폭발 반경 <output id="design-size-out">1.00</output></span><input id="design-size" type="range" min="0.45" max="1.8" value="1" step="0.05" /></label>
+            <label><span>꼬리 길이 <output id="design-trail-out">0.65</output></span><input id="design-trail" type="range" min="0" max="1" value="0.65" step="0.05" /></label>
+            <label><span>연소 시간 <output id="design-life-out">3.2s</output></span><input id="design-life" type="range" min="0.8" max="7" value="3.2" step="0.1" /></label>
+          </div>
+          <div class="toggle-row">
+            <label><input id="design-strobe" type="checkbox" /><span></span>스트로브</label>
+            <label><input id="design-split" type="checkbox" /><span></span>분열</label>
+            <label><input id="design-color-shift" type="checkbox" checked /><span></span>색 전환</label>
+          </div>
+          <div class="button-row">
+            <button class="secondary-button" id="save-design" type="button">프리셋 저장</button>
+            <button class="primary-button" id="launch-design" type="button">설계 발사</button>
+          </div>
+        </section>
+
+        <section class="tab-panel" data-tab-panel="music">
+          <label class="audio-drop" id="audio-drop" for="audio-input">
+            <input id="audio-input" type="file" accept="audio/*" hidden />
+            <span class="audio-icon" aria-hidden="true">♫</span>
+            <b>음악을 놓거나 선택</b>
+            <small>브라우저 안에서만 분석하며 업로드하지 않습니다</small>
+          </label>
+          <div class="audio-info hidden" id="audio-info">
+            <div><b id="audio-name">—</b><small id="audio-meta">분석 대기</small></div>
+            <button class="icon-button" id="audio-remove" type="button" aria-label="음악 제거">×</button>
+          </div>
+          <canvas id="audio-timeline" width="520" height="96" aria-label="오디오 에너지 및 큐 타임라인"></canvas>
+          <div class="music-metrics">
+            <span><small>BPM</small><b id="music-bpm">—</b></span>
+            <span><small>CUES</small><b id="music-cues">0</b></span>
+            <span><small>LENGTH</small><b id="music-length">—</b></span>
+          </div>
+          <div class="range-stack">
+            <label><span>비트 감도 <output id="beat-sensitivity-out">68%</output></span><input id="beat-sensitivity" type="range" min="0" max="100" value="68" /></label>
+            <label><span>발사 밀도 <output id="show-density-out">62%</output></span><input id="show-density" type="range" min="10" max="100" value="62" /></label>
+            <label><span>형상 다양성 <output id="show-variety-out">78%</output></span><input id="show-variety" type="range" min="0" max="100" value="78" /></label>
+            <label><span>피날레 강도 <output id="finale-intensity-out">85%</output></span><input id="finale-intensity" type="range" min="0" max="100" value="85" /></label>
+          </div>
+          <div class="button-row">
+            <button class="secondary-button" id="generate-show" type="button" disabled>자동 쇼 생성</button>
+            <button class="primary-button" id="play-show" type="button" disabled>▶ 쇼 재생</button>
+          </div>
+        </section>
+      </aside>
+
+      <aside class="panel panel-right glass" id="atmosphere-panel" aria-label="대기 및 환경 설정">
+        <div class="panel-heading">
+          <div><p class="eyebrow">ATMOSPHERE</p><h2>물리 · 환경</h2></div>
+          <button class="panel-collapse" type="button" data-collapse="atmosphere-panel" aria-label="패널 접기">›</button>
+        </div>
+        <div class="accordion open">
+          <button class="accordion-title" type="button"><span>FIELD PHYSICS</span><i>−</i></button>
+          <div class="accordion-body range-stack">
+            <label><span>중력 <output id="gravity-out">1.00 g</output></span><input id="gravity" type="range" min="0" max="2" value="1" step="0.05" /></label>
+            <label><span>공기 저항 <output id="drag-out">0.085</output></span><input id="drag" type="range" min="0" max="0.3" value="0.085" step="0.005" /></label>
+            <label><span>바람 X <output id="wind-x-out">1.6</output></span><input id="wind-x" type="range" min="-8" max="8" value="1.6" step="0.1" /></label>
+            <label><span>바람 Z <output id="wind-z-out">0.3</output></span><input id="wind-z" type="range" min="-8" max="8" value="0.3" step="0.1" /></label>
+            <label><span>보텍스 <output id="vortex-out">0.42</output></span><input id="vortex" type="range" min="0" max="2" value="0.42" step="0.02" /></label>
+          </div>
+        </div>
+        <div class="accordion open">
+          <button class="accordion-title" type="button"><span>VOLUME FLUID</span><i>−</i></button>
+          <div class="accordion-body range-stack">
+            <label><span>연기 밀도 <output id="smoke-out">0.70</output></span><input id="smoke" type="range" min="0" max="1.5" value="0.7" step="0.05" /></label>
+            <label><span>부력 <output id="buoyancy-out">1.10</output></span><input id="buoyancy" type="range" min="0" max="3" value="1.1" step="0.05" /></label>
+            <label><span>빛 산란 <output id="scatter-out">1.25</output></span><input id="scatter" type="range" min="0" max="3" value="1.25" step="0.05" /></label>
+            <label><span>볼륨 그림자 <output id="volume-shadow-out">1.60</output></span><input id="volume-shadow" type="range" min="0" max="4" value="1.6" step="0.1" /></label>
+          </div>
+        </div>
+        <div class="accordion open">
+          <button class="accordion-title" type="button"><span>WORLD & REFLECTION</span><i>−</i></button>
+          <div class="accordion-body">
+            <label class="select-label">환경<select id="environment-select">
+              <option value="lake">월광 호수</option>
+              <option value="city">네온 시티</option>
+              <option value="alpine">설산 야경</option>
+              <option value="cosmic">코스믹 돔</option>
+              <option value="custom">사용자 이미지</option>
+            </select></label>
+            <label class="file-button" for="environment-input"><input id="environment-input" type="file" accept="image/*" hidden /><span>＋</span> 배경 이미지 매핑</label>
+            <div class="segmented" id="floor-mode" role="group" aria-label="바닥 재질">
+              <button type="button" data-value="matte">무광</button>
+              <button class="active" type="button" data-value="water">수면 반사</button>
+              <button type="button" data-value="none">없음</button>
+            </div>
+            <div class="range-stack">
+              <label><span>수면 거칠기 <output id="water-roughness-out">0.22</output></span><input id="water-roughness" type="range" min="0" max="1" value="0.22" step="0.01" /></label>
+              <label><span>반사 강도 <output id="reflection-out">0.72</output></span><input id="reflection" type="range" min="0" max="1.2" value="0.72" step="0.02" /></label>
+            </div>
+          </div>
+        </div>
+        <div class="accordion">
+          <button class="accordion-title" type="button"><span>QUALITY</span><i>＋</i></button>
+          <div class="accordion-body">
+            <label class="select-label">렌더 품질<select id="quality-select"><option value="auto">자동</option><option value="high">높음</option><option value="medium">중간</option><option value="low">낮음</option></select></label>
+            <div class="toggle-row vertical">
+              <label><input id="bloom-toggle" type="checkbox" checked /><span></span>발광 블룸</label>
+              <label><input id="shadow-toggle" type="checkbox" checked /><span></span>동적 그림자</label>
+              <label><input id="adaptive-toggle" type="checkbox" checked /><span></span>적응형 해상도</label>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <section class="launch-deck glass" aria-label="발사 제어">
+        <div class="tool-toggle" role="group" aria-label="상호작용 도구">
+          <button class="active" type="button" data-tool="camera"><span>◎</span>관찰</button>
+          <button type="button" data-tool="gust"><span>〰</span>바람</button>
+          <button type="button" data-tool="vortex"><span>↻</span>보텍스</button>
+          <button type="button" data-tool="repel"><span>✦</span>충돌</button>
+        </div>
+        <div class="launch-main">
+          <div class="selected-shell">
+            <span class="shell-swatch" id="selected-swatch"></span>
+            <div><small>SELECTED SHELL</small><b id="selected-preset-name">황금 국화</b><span id="selected-preset-meta">CHRYSANTHEMUM · GOLD</span></div>
+          </div>
+          <button class="launch-button" id="launch-button" type="button"><span></span><b>LAUNCH</b><small>SPACE</small></button>
+          <label class="layout-select"><small>발사 배치</small><select id="launch-layout">
+            <option value="single">중앙 단발</option><option value="pair">좌우 대칭</option><option value="fan5">5연 부채</option><option value="arc7">7연 아크</option><option value="horizon9">수평 웨이브</option><option value="circle8">원형 포위</option><option value="finale">피날레 월</option>
+          </select></label>
+        </div>
+        <p class="interaction-hint" id="interaction-hint"><b>드래그</b> 회전 · <b>휠</b> 줌 · <b>SPACE</b> 발사</p>
+      </section>
+
+      <div class="toast-stack" id="toast-stack" aria-live="polite"></div>
+
+      <dialog class="welcome-dialog" id="welcome-dialog">
+        <button class="dialog-close" type="button" data-close-dialog aria-label="닫기">×</button>
+        <div class="welcome-visual" aria-hidden="true"><div class="orb"><i></i><i></i><i></i><i></i></div></div>
+        <div class="welcome-copy">
+          <p class="eyebrow">WEBGPU · VOLUME · WEBXR</p>
+          <h2>하늘을 설계하고<br /><em>공기를 연주하세요.</em></h2>
+          <p>실제 포탄의 별 배치 원리를 바탕으로 불꽃을 조합하고, 볼륨 연기와 빛·바람을 직접 밀어내며 음악에 맞춘 쇼를 만듭니다.</p>
+          <ul>
+            <li><span>01</span> 36종 불꽃 프리셋과 조합형 셸 설계</li>
+            <li><span>02</span> 중력·항력·바람·보텍스·충돌 상호작용</li>
+            <li><span>03</span> 로컬 음악 분석 자동 큐 + XR 큐브 UI</li>
+          </ul>
+          <button class="primary-button start-button" id="start-experience" type="button">스튜디오 시작 <span>→</span></button>
+          <small class="privacy-note">파일은 기기 밖으로 전송되지 않습니다</small>
+        </div>
+      </dialog>
+
+      <dialog class="help-dialog" id="help-dialog">
+        <button class="dialog-close" type="button" data-close-dialog aria-label="닫기">×</button>
+        <p class="eyebrow">QUICK GUIDE</p><h2>조작 가이드</h2>
+        <div class="help-grid">
+          <div><kbd>드래그</kbd><b>카메라 회전</b><p>관찰 도구에서 궤도 회전</p></div>
+          <div><kbd>SPACE</kbd><b>선택 불꽃 발사</b><p>현재 배치 프리셋으로 발사</p></div>
+          <div><kbd>W</kbd><b>바람 브러시</b><p>입자와 볼륨 공기를 밀기</p></div>
+          <div><kbd>V</kbd><b>보텍스 브러시</b><p>회전하는 공기장 만들기</p></div>
+          <div><kbd>XR</kbd><b>큐브 UI</b><p>트리거 선택 · 스퀴즈 발사</p></div>
+          <div><kbd>ESC</kbd><b>정지</b><p>자동 쇼 또는 도구 취소</p></div>
+        </div>
+      </dialog>
+
+      <noscript>이 앱은 JavaScript가 필요합니다.</noscript>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

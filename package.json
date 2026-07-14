@@ -1,0 +1,23 @@
+{
+  "name": "volumetric-fireworks-xr",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "WebGPU volumetric fireworks composer, music show generator, and WebXR cube UI viewer",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "test": "node --test",
+    "check": "node scripts/check-source.mjs && npm test && npm run build"
+  },
+  "dependencies": {
+    "three": "^0.185.1"
+  },
+  "devDependencies": {
+    "vite": "^8.1.4"
+  },
+  "engines": {
+    "node": ">=22.12"
+  }
+}
