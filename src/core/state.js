@@ -23,6 +23,7 @@ export const DEFAULT_STATE = Object.freeze({
   },
   quality: {
     preset: 'auto',
+    fireworkBrightness: 1,
     bloom: true,
     bloomStrength: 0.55,
     bloomRadius: 0.58,
@@ -32,6 +33,7 @@ export const DEFAULT_STATE = Object.freeze({
     particleBlend: 'additive',
     shadows: true,
     adaptive: true,
+    predictiveLoad: true,
   },
   sound: {
     enabled: true,
@@ -81,6 +83,7 @@ export function sanitizeState(candidate = {}) {
     },
     quality: {
       preset: allowed(candidate.quality?.preset, ['auto', 'high', 'medium', 'low'], DEFAULT_STATE.quality.preset),
+      fireworkBrightness: finite(candidate.quality?.fireworkBrightness, DEFAULT_STATE.quality.fireworkBrightness, 0.1, 3),
       bloom: candidate.quality?.bloom !== false,
       bloomStrength: finite(candidate.quality?.bloomStrength, DEFAULT_STATE.quality.bloomStrength, 0, 3),
       bloomRadius: finite(candidate.quality?.bloomRadius, DEFAULT_STATE.quality.bloomRadius, 0, 1),
@@ -90,6 +93,7 @@ export function sanitizeState(candidate = {}) {
       particleBlend: allowed(candidate.quality?.particleBlend, ['additive', 'screen', 'alpha'], DEFAULT_STATE.quality.particleBlend),
       shadows: candidate.quality?.shadows !== false,
       adaptive: candidate.quality?.adaptive !== false,
+      predictiveLoad: candidate.quality?.predictiveLoad !== false,
     },
     sound: {
       enabled: candidate.sound?.enabled !== false,

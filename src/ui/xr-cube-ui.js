@@ -76,7 +76,7 @@ export class XRCubeUI extends EventTarget {
         accent: '#ffc775',
         rows: [
           { label: '품질', value: () => this.state.quality.preset.toUpperCase(), action: () => this.callbacks.nextQuality?.() },
-          { label: '입자 수', value: () => `${this.callbacks.getParticleCount?.() ?? 0}`, action: () => {} },
+          { label: '밝기 · 입자', value: () => `${Math.round(this.state.quality.fireworkBrightness * 100)}% · ${this.callbacks.getParticleCount?.() ?? 0}`, action: () => this.adjust('quality.fireworkBrightness', 0.25, 0.25, 3) },
           { label: '큐브 회전', value: () => 'NEXT FACE', action: () => this.rotateFace(1) },
           { label: 'XR 종료', value: () => 'EXIT', action: () => this.callbacks.exitXR?.() },
         ],
@@ -318,4 +318,3 @@ export class XRCubeUI extends EventTarget {
     this.grip.removeFromParent();
   }
 }
-

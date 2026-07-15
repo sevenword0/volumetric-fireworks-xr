@@ -105,6 +105,7 @@
             <span><small>BPM</small><b id="music-bpm">—</b></span>
             <span><small>CUES</small><b id="music-cues">0</b></span>
             <span><small>LENGTH</small><b id="music-length">—</b></span>
+            <span title="사전 계산된 고부하 구간"><small>LOAD</small><b id="music-loads">0</b></span>
           </div>
           <div class="range-stack">
             <label><span>비트 감도 <output id="beat-sensitivity-out">68%</output></span><input id="beat-sensitivity" type="range" min="0" max="100" value="68" /></label>
@@ -171,6 +172,7 @@
             <label class="select-label">렌더 품질<select id="quality-select"><option value="auto">자동</option><option value="high">높음</option><option value="medium">중간</option><option value="low">낮음</option></select></label>
             <label class="select-label quality-select-gap">파티클 블렌딩<select id="particle-blend"><option value="additive">가산 발광 · ADD</option><option value="screen">스크린 · SCREEN</option><option value="alpha">알파 · SOFT</option></select></label>
             <div class="range-stack quality-ranges">
+              <label><span>불꽃 전역 밝기 <output id="firework-brightness-out">100%</output></span><input id="firework-brightness" type="range" min="0.1" max="3" value="1" step="0.05" /></label>
               <label><span>블룸 강도 <output id="bloom-strength-out">0.55×</output></span><input id="bloom-strength" type="range" min="0" max="3" value="0.55" step="0.05" /></label>
               <label><span>블룸 반경 <output id="bloom-radius-out">0.58</output></span><input id="bloom-radius" type="range" min="0" max="1" value="0.58" step="0.02" /></label>
               <label><span>블룸 임계값 <output id="bloom-threshold-out">0.78</output></span><input id="bloom-threshold" type="range" min="0" max="2" value="0.78" step="0.02" /></label>
@@ -181,8 +183,9 @@
               <label><input id="bloom-toggle" type="checkbox" checked /><span></span>발광 블룸</label>
               <label><input id="shadow-toggle" type="checkbox" checked /><span></span>동적 그림자</label>
               <label><input id="adaptive-toggle" type="checkbox" checked /><span></span>적응형 해상도</label>
+              <label><input id="predictive-load-toggle" type="checkbox" checked /><span></span>부하구간 사전 연산</label>
             </div>
-            <p class="control-note">모션 블러는 속도 버퍼 기반이며 XR에서는 시야 안정성을 위해 자동으로 제외됩니다.</p>
+            <p class="control-note">예약 발사와 음악 큐의 부하구간을 미리 계산해 급증 전에 품질을 조절합니다. 모션 블러는 XR에서 자동 제외됩니다.</p>
           </div>
         </div>
         <div class="accordion open">

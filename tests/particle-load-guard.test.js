@@ -62,6 +62,19 @@ test('disabling adaptive quality still retains the hard particle safety path', (
   assert.equal(crowded.level, 3);
 });
 
+test('precomputed load engages protection before particles are spawned', () => {
+  const guard = new ParticleLoadGuard();
+  const predicted = guard.update({ frameMs: 16, particles: 120, capacity: 12000, forecastParticles: 9000, predictive: true });
+  assert.equal(predicted.level, 3);
+  assert.equal(predicted.forecastLevel, 3);
+  assert.equal(predicted.forecastParticles, 9000);
+  assert.ok(predicted.effectiveLoadRatio > predicted.loadRatio);
+
+  const disabled = new ParticleLoadGuard().update({ frameMs: 16, particles: 120, capacity: 12000, forecastParticles: 9000, predictive: false });
+  assert.equal(disabled.level, 0);
+  assert.equal(disabled.forecastLevel, 0);
+});
+
 test('profile lookup clamps unknown levels', () => {
   assert.equal(particleLoadProfile(-20).name, 'normal');
   assert.equal(particleLoadProfile(99).name, 'emergency');

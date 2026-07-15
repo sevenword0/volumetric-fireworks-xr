@@ -58,3 +58,18 @@ test('emergency shedding can retire already-visible stars to recover quickly', (
   assert.equal(engine.activeCount, stars - 25);
   engine.dispose();
 });
+
+test('global brightness scales particle HDR output and clamps unsafe values', () => {
+  const engine = createEngine();
+  engine.setLoadBudget({ softLimit: 1000, maxSpawnPerFrame: 1000, burstScale: 0.08, trailScale: 1, smokeStride: 1, cullPerFrame: 0 });
+  engine.burst(FIREWORK_PRESETS[0], new THREE.Vector3());
+  engine.setGlobalBrightness(1);
+  engine.updateAttributes();
+  const full = engine.colorArray[0];
+  engine.setGlobalBrightness(0.5);
+  engine.updateAttributes();
+  assert.ok(Math.abs(engine.colorArray[0] - full * 0.5) < 1e-6);
+  assert.equal(engine.setGlobalBrightness(99), 3);
+  assert.equal(engine.setGlobalBrightness(0), 0.1);
+  engine.dispose();
+});

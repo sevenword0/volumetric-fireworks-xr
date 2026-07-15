@@ -49,7 +49,7 @@ function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 
-function loadLevel(ratio) {
+export function particleLoadLevel(ratio) {
   if (ratio >= 0.64) return 3;
   if (ratio >= 0.5) return 2;
   if (ratio >= 0.35) return 1;
@@ -74,24 +74,28 @@ export class ParticleLoadGuard {
     this.recoveryCount = 0;
   }
 
-  update({ frameMs, particles, capacity, adaptive = true } = {}) {
+  update({ frameMs, particles, capacity, adaptive = true, forecastParticles = 0, predictive = true } = {}) {
     const safeCapacity = Math.max(1, Math.round(Number(capacity) || 1));
     const safeParticles = clamp(Math.round(Number(particles) || 0), 0, safeCapacity);
+    const safeForecast = clamp(Math.round(Number(forecastParticles) || 0), 0, safeCapacity * 8);
     const safeFrameMs = clamp(Number(frameMs) || this.targetFrameMs, 1, this.targetFrameMs * 4);
     const emaWeight = safeFrameMs > this.frameEma ? 0.18 : 0.04;
     this.frameEma += (safeFrameMs - this.frameEma) * emaWeight;
 
     const ratio = safeParticles / safeCapacity;
-    const particleDemand = loadLevel(ratio);
+    const forecastRatio = safeForecast / safeCapacity;
+    const particleDemand = particleLoadLevel(ratio);
+    const forecastDemand = predictive ? particleLoadLevel(forecastRatio) : 0;
     const frameDemand = adaptive
       ? Math.max(frameLevel(this.frameEma, this.targetFrameMs), frameLevel(safeFrameMs, this.targetFrameMs))
       : 0;
-    const demand = Math.max(particleDemand, frameDemand);
+    const immediateDemand = Math.max(particleDemand, forecastDemand);
+    const demand = Math.max(immediateDemand, frameDemand);
     const previousLevel = this.level;
 
     if (demand > this.level) {
       this.recoveryCount = 0;
-      if (particleDemand > this.level) {
+      if (immediateDemand > this.level) {
         this.level = demand;
         this.pressureCount = 0;
       } else {
@@ -119,6 +123,10 @@ export class ParticleLoadGuard {
       name: profile.name,
       changed: previousLevel !== this.level,
       loadRatio: ratio,
+      effectiveLoadRatio: Math.max(ratio, predictive ? forecastRatio : 0),
+      forecastParticles: safeForecast,
+      forecastRatio,
+      forecastLevel: forecastDemand,
       frameEma: this.frameEma,
       softLimit: Math.max(1, Math.min(safeCapacity, Math.floor(safeCapacity * profile.softLimitRatio))),
       maxSpawnPerFrame: Math.max(24, Math.round(safeCapacity * profile.spawnRatio)),

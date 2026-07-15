@@ -8,6 +8,7 @@ import WebGPU from 'three/addons/capabilities/WebGPU.js';
 import { AudioShowController, getPresetForCue } from './audio/audio-show.js';
 import { FireworkSoundEngine } from './audio/firework-sound.js';
 import { ParticleLoadGuard } from './core/particle-load-guard.js';
+import { ParticleLoadPlanner } from './core/particle-load-planner.js';
 import { createAppState } from './core/state.js';
 import { FIREWORK_PRESETS } from './pyro/presets.js';
 import { FireworkEngine } from './pyro/firework-engine.js';
@@ -23,6 +24,7 @@ const ui = new AppUI(store, audio);
 const state = store.state;
 const fireworkSound = new FireworkSoundEngine(state);
 const particleLoadGuard = new ParticleLoadGuard();
+const particleLoadPlanner = new ParticleLoadPlanner();
 
 const scene = new THREE.Scene();
 scene.name = 'PYROVERSE XR scene';
@@ -84,6 +86,8 @@ let interactionPointer = null;
 let interactionLast = new THREE.Vector3();
 let interactionLastTime = 0;
 let loadGuardState = null;
+let loadForecastState = null;
+let showLoadPlan = { eventCount: 0, windowCount: 0, windows: [] };
 let activeQuality = 'medium';
 const pointer = new THREE.Vector2();
 const raycaster = new THREE.Raycaster();
@@ -104,8 +108,17 @@ async function initialize() {
     world = new WorldScene(scene, renderer, state);
     fluid = new FluidVolume(scene, state);
     engine = new FireworkEngine(scene, state, { maxParticles: qualityParticleLimit(resolveQuality()) });
-    loadGuardState = particleLoadGuard.update({ frameMs: 1000 / 60, particles: 0, capacity: engine.maxParticles });
+    particleLoadPlanner.setCapacity(engine.maxParticles);
+    loadForecastState = particleLoadPlanner.forecast({ enabled: state.quality.predictiveLoad });
+    loadGuardState = particleLoadGuard.update({
+      frameMs: 1000 / 60,
+      particles: 0,
+      capacity: engine.maxParticles,
+      forecastParticles: loadForecastState.predictedParticles,
+      predictive: state.quality.predictiveLoad,
+    });
     engine.setLoadBudget(loadGuardState);
+    engine.setGlobalBrightness(state.quality.fireworkBrightness);
     ui.setPerformanceGuard(loadGuardState);
     engine.connectFluid(fluid);
     engine.setColliders(world.colliders);
@@ -137,9 +150,10 @@ async function initialize() {
       ui,
       audio,
       fireworkSound,
+      particleLoadPlanner,
       state,
       launch: (presetId = state.selectedPresetId, layout = state.launchLayout) => launchPreset(FIREWORK_PRESETS.find((preset) => preset.id === presetId) ?? FIREWORK_PRESETS[0], layout),
-      clear: () => { engine.clear(); fluid.clear(); },
+      clear: clearSimulation,
       diagnostics: () => ({
         backend: renderer.backend?.constructor?.name ?? 'unknown',
         webgpu: Boolean(renderer.backend?.isWebGPUBackend),
@@ -149,12 +163,14 @@ async function initialize() {
         fps: fpsAverage,
         effects: {
           bloom: state.quality.bloom,
+          fireworkBrightness: state.quality.fireworkBrightness,
           bloomStrength: state.quality.bloomStrength,
           bloomRadius: state.quality.bloomRadius,
           bloomThreshold: state.quality.bloomThreshold,
           saturation: state.quality.saturation,
           motionBlur: state.quality.motionBlur,
           particleBlend: engine.blendingMode,
+          predictiveLoad: state.quality.predictiveLoad,
         },
         sound: {
           enabled: state.sound.enabled,
@@ -171,7 +187,16 @@ async function initialize() {
           maxSpawnPerFrame: loadGuardState.maxSpawnPerFrame,
           trailScale: loadGuardState.trailScale,
           postProcessing: loadGuardState.postProcessing,
+          forecastParticles: loadGuardState.forecastParticles,
+          forecastRatio: loadGuardState.forecastRatio,
+          forecastLevel: loadGuardState.forecastLevel,
         } : null,
+        loadForecast: loadForecastState ? { ...loadForecastState } : null,
+        showLoadPlan: {
+          eventCount: showLoadPlan.eventCount,
+          windowCount: showLoadPlan.windowCount,
+          windows: showLoadPlan.windows.map((window) => ({ ...window })),
+        },
       }),
     };
     ui.setReady();
@@ -245,8 +270,8 @@ function setupUIEvents() {
     void armFireworkSound();
     started = true;
     ui.toast('스튜디오 활성화 · SPACE로 발사하세요');
-    engine.schedule(FIREWORK_PRESETS[4], { x: -7, delay: 0.15, scale: 0.92 });
-    engine.schedule(FIREWORK_PRESETS[0], { x: 7, delay: 0.58, scale: 1.08 });
+    scheduleSingle(FIREWORK_PRESETS[4], { x: -7, delay: 0.15, scale: 0.92 });
+    scheduleSingle(FIREWORK_PRESETS[0], { x: 7, delay: 0.58, scale: 1.08 });
   });
   ui.addEventListener('launch', (event) => {
     launchPreset(event.detail.preset, event.detail.layout);
@@ -276,11 +301,17 @@ function setupUIEvents() {
       world.setShadows(event.detail.value);
       fluid.shadowMesh.visible = event.detail.value && fluid.enabled;
     }
+    if (event.detail.key === 'predictiveLoad') {
+      particleLoadPlanner.clearManualPlan();
+      refreshShowLoadPlan();
+      ui.toast(event.detail.value ? '부하구간 사전 연산을 활성화했습니다' : '부하구간 사전 연산을 해제했습니다');
+    }
   });
   ui.addEventListener('statechange', (event) => {
     if (event.detail.path === 'volume.smoke') fluid.setVisible(event.detail.value > 0.001);
     if (event.detail.path.startsWith('quality.')) syncPostProcessing();
     if (event.detail.path === 'quality.particleBlend') engine.setBlendingMode(event.detail.value);
+    if (event.detail.path === 'quality.fireworkBrightness') engine.setGlobalBrightness(event.detail.value);
     if (event.detail.path === 'sound.volume') fireworkSound.setVolume();
   });
   ui.addEventListener('soundtoggle', (event) => {
@@ -291,6 +322,7 @@ function setupUIEvents() {
   ui.addEventListener('showgenerated', (event) => {
     showCues = event.detail.cues;
     nextCueIndex = 0;
+    refreshShowLoadPlan();
   });
   ui.addEventListener('showplay', (event) => {
     void armFireworkSound();
@@ -456,7 +488,7 @@ function createCubeCallbacks() {
     nextLayout: () => ui.nextLayout(),
     getCueCount: () => ui.cues.length,
     generateShow: () => ui.generateShow(),
-    clear: () => { engine.clear(); fluid.clear(); ui.toast('입자와 볼륨을 비웠습니다'); },
+    clear: () => { clearSimulation(); ui.toast('입자와 볼륨을 비웠습니다'); },
     nextEnvironment: () => {
       const next = environments[(environments.indexOf(state.world.environment) + 1) % environments.length];
       store.set('world.environment', next);
@@ -503,11 +535,36 @@ const RANGE_BINDINGS_FOR_CUBE = Object.freeze({
   'physics.gravity': 'gravity',
   'physics.windX': 'wind-x',
   'physics.vortex': 'vortex',
+  'quality.fireworkBrightness': 'firework-brightness',
 });
+
+function clearSimulation() {
+  engine?.clear();
+  fluid?.clear();
+  particleLoadPlanner.clearManualPlan();
+}
+
+function scheduleSingle(preset, options = {}) {
+  if (state.quality.predictiveLoad) particleLoadPlanner.scheduleLaunch(preset, 'single', engine.time, options);
+  engine.schedule(preset, options);
+}
+
+function refreshShowLoadPlan() {
+  if (!state.quality.predictiveLoad || !showCues.length) {
+    particleLoadPlanner.clearShowPlan();
+    showLoadPlan = particleLoadPlanner.getShowPlan();
+    ui.setLoadPlan(showLoadPlan);
+    return showLoadPlan;
+  }
+  showLoadPlan = particleLoadPlanner.planShow(showCues, (presetId) => FIREWORK_PRESETS.find((preset) => preset.id === presetId));
+  ui.setLoadPlan(showLoadPlan);
+  return showLoadPlan;
+}
 
 function launchPreset(preset, layout = 'single', options = {}) {
   if (!engine || !preset) return;
   void armFireworkSound();
+  if (state.quality.predictiveLoad) particleLoadPlanner.scheduleLaunch(preset, layout, engine.time, options);
   const count = engine.launchLayout(preset, layout, options);
   ui.toast(`${preset.name} · ${layout.toUpperCase()} ${count}발`);
 }
@@ -535,11 +592,19 @@ function animate(now) {
   const dt = Math.min(0.05, frameMs / 1000);
   lastFrame = now;
   const previousGuardLevel = loadGuardState?.level ?? 0;
+  loadForecastState = particleLoadPlanner.forecast({
+    engineTime: engine.time,
+    audioTime: audio.currentTime,
+    showPlaying: audio.playing,
+    enabled: state.quality.predictiveLoad,
+  });
   loadGuardState = particleLoadGuard.update({
     frameMs,
     particles: engine.activeCount,
     capacity: engine.maxParticles,
     adaptive: state.quality.adaptive && !document.hidden && performance.now() > 3000,
+    forecastParticles: loadForecastState.predictedParticles,
+    predictive: state.quality.predictiveLoad,
   });
   engine.setLoadBudget(loadGuardState);
   if (loadGuardState.changed) handleLoadGuardTransition(previousGuardLevel, loadGuardState);
@@ -570,6 +635,7 @@ function animate(now) {
   if (now - fpsWindowStart >= 750) {
     fpsAverage = fpsFrames / Math.max(0.001, fpsAccumulator);
     ui.updateTelemetry({ fps: fpsAverage, particles: engine.activeCount, volume: `${fluid.nx}×${fluid.ny}×${fluid.nz}` });
+    ui.setPerformanceGuard(loadGuardState);
     adaptQuality(fpsAverage);
     fpsAccumulator = 0;
     fpsFrames = 0;
@@ -613,9 +679,12 @@ function handleLoadGuardTransition(previousLevel, next) {
   applyRuntimeResolution();
   ui.setPerformanceGuard(next);
   if (next.level > previousLevel && next.level >= 2) {
-    ui.toast(next.level === 3
-      ? '급증 보호 활성 · 잔상과 후처리 부하를 즉시 낮췄습니다'
-      : '파티클 밀도를 조절해 프레임을 보호합니다');
+    const forecastLed = next.forecastLevel > 0 && next.forecastRatio > next.loadRatio + 0.05;
+    ui.toast(forecastLed
+      ? `고부하 구간 ${loadForecastState?.peakIn?.toFixed?.(1) ?? 0}초 전 · 선제 최적화 활성`
+      : next.level === 3
+        ? '급증 보호 활성 · 잔상과 후처리 부하를 즉시 낮췄습니다'
+        : '파티클 밀도를 조절해 프레임을 보호합니다');
   } else if (next.level === 0 && previousLevel > 0) {
     ui.toast('파티클 부하 안정 · 전체 효과 품질을 복원했습니다');
   }

@@ -260,7 +260,7 @@ export class WorldScene extends EventTarget {
     }
   }
 
-  addBurstLight({ position, color: lightColor, scale = 1, preset }) {
+  addBurstLight({ position, color: lightColor, scale = 1, preset, brightness = this.state.quality.fireworkBrightness ?? 1 }) {
     const lightLimit = [7, 6, 5, 3][this.performanceLevel] ?? 3;
     const allowedLights = this.lights.slice(0, lightLimit);
     let entry = this.activeLights.find((candidate) => allowedLights.includes(candidate.light) && !candidate.light.visible);
@@ -277,7 +277,7 @@ export class WorldScene extends EventTarget {
     entry.light.position.copy(position);
     entry.light.color.copy(lightColor);
     entry.light.distance = 34 + scale * 20;
-    entry.light.intensity = entry.peak;
+    entry.light.intensity = entry.peak * clamp(brightness, 0.1, 3);
     entry.light.visible = true;
     entry.light.castShadow = this.state.quality.shadows && this.performanceLevel < 2 && this.lights.indexOf(entry.light) < 2;
   }
@@ -356,7 +356,8 @@ export class WorldScene extends EventTarget {
       const attack = Math.min(1, progress * 18);
       const decay = Math.exp(-progress * 5.2);
       const flicker = 0.9 + Math.sin(this.clock * 39 + index * 1.7) * 0.1;
-      entry.light.intensity = entry.peak * attack * decay * flicker;
+      const fireworkBrightness = clamp(this.state.quality.fireworkBrightness ?? 1, 0.1, 3);
+      entry.light.intensity = entry.peak * fireworkBrightness * attack * decay * flicker;
     }
   }
 

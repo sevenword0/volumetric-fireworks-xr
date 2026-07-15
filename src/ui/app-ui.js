@@ -21,6 +21,7 @@ const FORMATTERS = {
   'volume.shadow': (value) => value.toFixed(2),
   'world.waterRoughness': (value) => value.toFixed(2),
   'world.reflection': (value) => value.toFixed(2),
+  'quality.fireworkBrightness': (value) => `${Math.round(value * 100)}%`,
   'quality.bloomStrength': (value) => `${value.toFixed(2)}×`,
   'quality.bloomRadius': (value) => value.toFixed(2),
   'quality.bloomThreshold': (value) => value.toFixed(2),
@@ -45,6 +46,7 @@ const RANGE_BINDINGS = [
   ['volume-shadow', 'volume.shadow'],
   ['water-roughness', 'world.waterRoughness'],
   ['reflection', 'world.reflection'],
+  ['firework-brightness', 'quality.fireworkBrightness'],
   ['bloom-strength', 'quality.bloomStrength'],
   ['bloom-radius', 'quality.bloomRadius'],
   ['bloom-threshold', 'quality.bloomThreshold'],
@@ -87,6 +89,7 @@ export class AppUI extends EventTarget {
     this.selectedPreset = this.presets.find((preset) => preset.id === this.state.selectedPresetId) ?? this.presets[0];
     this.analysis = null;
     this.cues = [];
+    this.loadWindows = [];
     this.timelinePlayhead = 0;
     this.xrAvailable = false;
     this.elements = {};
@@ -117,8 +120,9 @@ export class AppUI extends EventTarget {
       'design-count-out', 'design-size-out', 'design-trail-out', 'design-life-out', 'design-strobe', 'design-split', 'design-color-shift',
       'save-design', 'launch-design', 'shell-preview', 'custom-code', 'custom-title',
       'audio-drop', 'audio-input', 'audio-info', 'audio-name', 'audio-meta', 'audio-remove', 'audio-timeline', 'music-bpm', 'music-cues', 'music-length',
+      'music-loads',
       'generate-show', 'play-show', 'environment-select', 'environment-input', 'floor-mode', 'quality-select', 'particle-blend',
-      'bloom-toggle', 'shadow-toggle', 'adaptive-toggle', 'sound-toggle', 'sound-status',
+      'bloom-toggle', 'shadow-toggle', 'adaptive-toggle', 'predictive-load-toggle', 'sound-toggle', 'sound-status',
     ];
     for (const id of ids) this.elements[id.replaceAll('-', '')] = document.getElementById(id);
   }
@@ -307,6 +311,7 @@ export class AppUI extends EventTarget {
         return;
       }
       this.elements.audioinfo.classList.remove('hidden');
+      this.setLoadPlan();
       this.elements.audioname.textContent = file.name;
       this.elements.audiometa.textContent = '파형·주파수·온셋 분석 중…';
       this.elements.generateshow.disabled = true;
@@ -350,7 +355,9 @@ export class AppUI extends EventTarget {
       this.elements.musicbpm.textContent = '—';
       this.elements.musiccues.textContent = '0';
       this.elements.musiclength.textContent = '—';
+      this.setLoadPlan();
       this.drawTimeline();
+      this.dispatchEvent(new CustomEvent('showgenerated', { detail: { cues: [] } }));
       this.dispatchEvent(new CustomEvent('showstop'));
     });
     this.elements.generateshow.addEventListener('click', () => this.generateShow());
@@ -398,6 +405,12 @@ export class AppUI extends EventTarget {
     }
     const duration = this.analysis.duration;
     const frames = this.analysis.frames;
+    for (const window of this.loadWindows) {
+      const start = Math.max(0, Math.min(width, (window.start / duration) * width));
+      const end = Math.max(start, Math.min(width, (window.end / duration) * width));
+      context.fillStyle = window.level >= 3 ? 'rgba(255, 84, 124, .18)' : window.level === 2 ? 'rgba(255, 165, 86, .14)' : 'rgba(255, 211, 122, .1)';
+      context.fillRect(start, 0, Math.max(1, end - start), height);
+    }
     const gradient = context.createLinearGradient(0, 0, 0, height);
     gradient.addColorStop(0, '#9a79ff');
     gradient.addColorStop(0.55, '#56e5ff');
@@ -475,7 +488,7 @@ export class AppUI extends EventTarget {
       this.store.set('quality.particleBlend', value);
       this.dispatchEvent(new CustomEvent('statechange', { detail: { path: 'quality.particleBlend', value } }));
     });
-    for (const [element, key] of [[this.elements.bloomtoggle, 'bloom'], [this.elements.shadowtoggle, 'shadows'], [this.elements.adaptivetoggle, 'adaptive']]) {
+    for (const [element, key] of [[this.elements.bloomtoggle, 'bloom'], [this.elements.shadowtoggle, 'shadows'], [this.elements.adaptivetoggle, 'adaptive'], [this.elements.predictiveloadtoggle, 'predictiveLoad']]) {
       element.checked = this.state.quality[key];
       element.addEventListener('change', () => {
         this.store.set(`quality.${key}`, element.checked);
@@ -615,6 +628,7 @@ export class AppUI extends EventTarget {
     this.elements.bloomtoggle.checked = this.state.quality.bloom;
     this.elements.shadowtoggle.checked = this.state.quality.shadows;
     this.elements.adaptivetoggle.checked = this.state.quality.adaptive;
+    this.elements.predictiveloadtoggle.checked = this.state.quality.predictiveLoad;
     this.elements.soundtoggle.checked = this.state.sound.enabled;
     this.setSoundStatus(this.state.sound.enabled ? '입력 후 활성' : 'MUTED');
   }
@@ -643,9 +657,21 @@ export class AppUI extends EventTarget {
   setPerformanceGuard(state) {
     const container = this.elements.particlereadout.parentElement;
     container.dataset.guard = state.name;
-    container.title = state.level > 0
-      ? `급증 보호 ${state.level}단계 · 프레임 예산에 맞춰 생성량 자동 조절`
-      : '파티클 부하 정상';
+    const forecastLed = state.forecastLevel > 0 && state.forecastRatio > state.loadRatio + 0.05;
+    container.title = forecastLed
+      ? `사전 부하 예측 ${state.forecastLevel}단계 · 약 ${state.forecastParticles.toLocaleString()}개 구간 선제 최적화`
+      : state.level > 0
+        ? `급증 보호 ${state.level}단계 · 프레임 예산에 맞춰 생성량 자동 조절`
+        : '파티클 부하 정상';
+  }
+
+  setLoadPlan(plan = {}) {
+    this.loadWindows = Array.isArray(plan.windows) ? plan.windows : [];
+    this.elements.musicloads.textContent = String(this.loadWindows.length);
+    this.elements.musicloads.parentElement.title = this.loadWindows.length
+      ? `고부하 구간 ${this.loadWindows.length}개 · 타임라인 음영으로 표시`
+      : '사전 계산된 고부하 구간 없음';
+    this.drawTimeline();
   }
 
   setSoundStatus(label, active = false) {

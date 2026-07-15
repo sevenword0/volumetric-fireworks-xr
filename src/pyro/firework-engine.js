@@ -76,6 +76,7 @@ export class FireworkEngine extends EventTarget {
     this._temp2 = new THREE.Vector3();
     this._frame = 0;
     this._frameSpawnCount = 0;
+    this.globalBrightness = clamp(finite(state.quality?.fireworkBrightness, 1), 0.1, 3);
     this.loadBudget = {
       level: 0,
       name: 'normal',
@@ -142,6 +143,11 @@ export class FireworkEngine extends EventTarget {
     }
     this.material.needsUpdate = true;
     return next;
+  }
+
+  setGlobalBrightness(value) {
+    this.globalBrightness = clamp(finite(value, 1), 0.1, 3);
+    return this.globalBrightness;
   }
 
   setColliders(colliders) {
@@ -314,8 +320,8 @@ export class FireworkEngine extends EventTarget {
     }
 
     const lightColor = colorFromPalette(palette, 0.25);
-    this.dispatchEvent(new CustomEvent('burst', { detail: { preset, position: position.clone(), color: lightColor, scale, count, requestedCount } }));
-    this.fluid?.addEmitter(position, (2.2 * preset.smoke * scale) / this.loadBudget.smokeStride, 1.9 * scale, lightColor, 2.2);
+    this.dispatchEvent(new CustomEvent('burst', { detail: { preset, position: position.clone(), color: lightColor, scale, count, requestedCount, brightness: this.globalBrightness } }));
+    this.fluid?.addEmitter(position, (2.2 * preset.smoke * scale) / this.loadBudget.smokeStride, 1.9 * scale * this.globalBrightness, lightColor, 2.2);
     return count;
   }
 
@@ -633,7 +639,7 @@ export class FireworkEngine extends EventTarget {
       if (particle.smoke > 0 && this.fluid && this._frame % smokeInterval === 0) {
         const lifeT = particle.age / particle.life;
         const density = (particle.smoke * (particle.type === PARTICLE.SHELL ? 0.28 : 0.12) * (1 - lifeT * 0.5)) / this.loadBudget.smokeStride;
-        this.fluid.addEmitter(particle.position, density, particle.brightness * 0.4, particle.color, particle.type === PARTICLE.SHELL ? 1.1 : 0.55);
+        this.fluid.addEmitter(particle.position, density, particle.brightness * 0.4 * this.globalBrightness, particle.color, particle.type === PARTICLE.SHELL ? 1.1 : 0.55);
       }
 
       particleIndex -= 1;
@@ -662,7 +668,7 @@ export class FireworkEngine extends EventTarget {
       if (particle.type === PARTICLE.CRACKLE) flicker *= 0.9 + this.random() * 0.8;
       const colorMix = particle.colorShift ? clamp((lifeT - 0.34) / 0.45, 0, 1) : 0;
       this._temp.set(particle.color.r, particle.color.g, particle.color.b).lerp(this._temp2.set(particle.colorNext.r, particle.colorNext.g, particle.colorNext.b), colorMix);
-      const intensity = (particle.type === PARTICLE.SHELL ? 2.8 : particle.type === PARTICLE.CRACKLE ? 4.2 : 2.35) * flicker;
+      const intensity = (particle.type === PARTICLE.SHELL ? 2.8 : particle.type === PARTICLE.CRACKLE ? 4.2 : 2.35) * flicker * this.globalBrightness;
       this.colorArray[positionOffset] = this._temp.x * intensity;
       this.colorArray[positionOffset + 1] = this._temp.y * intensity;
       this.colorArray[positionOffset + 2] = this._temp.z * intensity;

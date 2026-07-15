@@ -20,7 +20,7 @@ test('numeric state is clamped to safe simulation ranges', () => {
     physics: { gravity: 20, drag: -4, windX: 99, windZ: -99, vortex: Infinity },
     volume: { smoke: 8, buoyancy: -1, scattering: 9, shadow: 10 },
     world: { waterRoughness: 8, reflection: -2 },
-    quality: { bloomStrength: 9, bloomRadius: -1, bloomThreshold: 4, saturation: 8, motionBlur: -2 },
+    quality: { fireworkBrightness: 9, bloomStrength: 9, bloomRadius: -1, bloomThreshold: 4, saturation: 8, motionBlur: -2 },
     sound: { volume: 6 },
     show: { sensitivity: 7, density: 0, variety: -1, finale: 4 },
   });
@@ -28,6 +28,7 @@ test('numeric state is clamped to safe simulation ranges', () => {
   assert.deepEqual(state.volume, { smoke: 1.5, buoyancy: 0, scattering: 3, shadow: 4 });
   assert.equal(state.world.waterRoughness, 1);
   assert.equal(state.world.reflection, 0);
+  assert.equal(state.quality.fireworkBrightness, 3);
   assert.equal(state.quality.bloomStrength, 3);
   assert.equal(state.quality.bloomRadius, 0);
   assert.equal(state.quality.bloomThreshold, 2);
@@ -49,12 +50,12 @@ test('unknown enum values fall back instead of entering the renderer', () => {
 
 test('visual effects and impact sound settings persist after sanitization', () => {
   const state = sanitizeState({
-    quality: { bloom: false, bloomStrength: 1.4, bloomRadius: 0.3, bloomThreshold: 1.1, saturation: 1.6, motionBlur: 0.8, particleBlend: 'screen' },
+    quality: { fireworkBrightness: 1.8, bloom: false, bloomStrength: 1.4, bloomRadius: 0.3, bloomThreshold: 1.1, saturation: 1.6, motionBlur: 0.8, particleBlend: 'screen', predictiveLoad: false },
     sound: { enabled: false, volume: 0.35 },
   });
   assert.deepEqual(state.quality, {
-    preset: 'auto', bloom: false, bloomStrength: 1.4, bloomRadius: 0.3, bloomThreshold: 1.1,
-    saturation: 1.6, motionBlur: 0.8, particleBlend: 'screen', shadows: true, adaptive: true,
+    preset: 'auto', fireworkBrightness: 1.8, bloom: false, bloomStrength: 1.4, bloomRadius: 0.3, bloomThreshold: 1.1,
+    saturation: 1.6, motionBlur: 0.8, particleBlend: 'screen', shadows: true, adaptive: true, predictiveLoad: false,
   });
   assert.deepEqual(state.sound, { enabled: false, volume: 0.35 });
 });
