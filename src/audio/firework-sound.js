@@ -35,7 +35,8 @@ function soundSeed(detail) {
     hash ^= id.charCodeAt(index);
     hash = Math.imul(hash, 16777619);
   }
-  return (hash ^ Math.round(finite(detail?.count) * 31) ^ Math.round(finite(detail?.scale, 1) * 1000)) >>> 0;
+  const count = finite(detail?.requestedCount, finite(detail?.count));
+  return (hash ^ Math.round(count * 31) ^ Math.round(finite(detail?.scale, 1) * 1000)) >>> 0;
 }
 
 export function soundTravelDelay(distance, speed = SPEED_OF_SOUND) {
@@ -49,7 +50,7 @@ export function distanceAttenuation(distance) {
 export function createBurstSoundProfile(detail = {}) {
   const preset = detail.preset ?? {};
   const scale = clamp(finite(detail.scale, 1), 0.35, 2.5);
-  const count = clamp(Math.round(finite(detail.count, preset.count ?? 180)), 1, 4000);
+  const count = clamp(Math.round(finite(detail.requestedCount, finite(detail.count, preset.count ?? 180))), 1, 4000);
   const crackle = clamp(finite(preset.crackle), 0, 1);
   const strobe = clamp(finite(preset.strobe), 0, 1);
   const split = clamp(finite(preset.split), 0, 8);

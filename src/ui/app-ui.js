@@ -640,6 +640,14 @@ export class AppUI extends EventTarget {
     if (volume) this.elements.volumereadout.textContent = volume;
   }
 
+  setPerformanceGuard(state) {
+    const container = this.elements.particlereadout.parentElement;
+    container.dataset.guard = state.name;
+    container.title = state.level > 0
+      ? `급증 보호 ${state.level}단계 · 프레임 예산에 맞춰 생성량 자동 조절`
+      : '파티클 부하 정상';
+  }
+
   setSoundStatus(label, active = false) {
     this.elements.soundstatus.textContent = label;
     this.elements.soundstatus.classList.toggle('active', active);

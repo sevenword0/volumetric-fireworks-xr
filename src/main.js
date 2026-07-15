@@ -7,6 +7,7 @@ import { motionBlur } from 'three/addons/tsl/display/MotionBlur.js';
 import WebGPU from 'three/addons/capabilities/WebGPU.js';
 import { AudioShowController, getPresetForCue } from './audio/audio-show.js';
 import { FireworkSoundEngine } from './audio/firework-sound.js';
+import { ParticleLoadGuard } from './core/particle-load-guard.js';
 import { createAppState } from './core/state.js';
 import { FIREWORK_PRESETS } from './pyro/presets.js';
 import { FireworkEngine } from './pyro/firework-engine.js';
@@ -21,6 +22,7 @@ const audio = new AudioShowController();
 const ui = new AppUI(store, audio);
 const state = store.state;
 const fireworkSound = new FireworkSoundEngine(state);
+const particleLoadGuard = new ParticleLoadGuard();
 
 const scene = new THREE.Scene();
 scene.name = 'PYROVERSE XR scene';
@@ -81,6 +83,8 @@ let lastFrame = performance.now();
 let interactionPointer = null;
 let interactionLast = new THREE.Vector3();
 let interactionLastTime = 0;
+let loadGuardState = null;
+let activeQuality = 'medium';
 const pointer = new THREE.Vector2();
 const raycaster = new THREE.Raycaster();
 const interactionPlane = new THREE.Plane();
@@ -100,6 +104,9 @@ async function initialize() {
     world = new WorldScene(scene, renderer, state);
     fluid = new FluidVolume(scene, state);
     engine = new FireworkEngine(scene, state, { maxParticles: qualityParticleLimit(resolveQuality()) });
+    loadGuardState = particleLoadGuard.update({ frameMs: 1000 / 60, particles: 0, capacity: engine.maxParticles });
+    engine.setLoadBudget(loadGuardState);
+    ui.setPerformanceGuard(loadGuardState);
     engine.connectFluid(fluid);
     engine.setColliders(world.colliders);
     wireEngineEvents();
@@ -155,6 +162,16 @@ async function initialize() {
           activeVoices: fireworkSound.activeVoices,
           ready: fireworkSound.context?.state === 'running',
         },
+        loadGuard: loadGuardState ? {
+          level: loadGuardState.level,
+          mode: loadGuardState.name,
+          loadRatio: loadGuardState.loadRatio,
+          frameMs: loadGuardState.frameEma,
+          softLimit: loadGuardState.softLimit,
+          maxSpawnPerFrame: loadGuardState.maxSpawnPerFrame,
+          trailScale: loadGuardState.trailScale,
+          postProcessing: loadGuardState.postProcessing,
+        } : null,
       }),
     };
     ui.setReady();
@@ -514,8 +531,18 @@ function updateShow() {
 
 function animate(now) {
   if (!engine) return;
-  const dt = Math.min(0.05, Math.max(0, (now - lastFrame) / 1000));
+  const frameMs = Math.max(0, now - lastFrame);
+  const dt = Math.min(0.05, frameMs / 1000);
   lastFrame = now;
+  const previousGuardLevel = loadGuardState?.level ?? 0;
+  loadGuardState = particleLoadGuard.update({
+    frameMs,
+    particles: engine.activeCount,
+    capacity: engine.maxParticles,
+    adaptive: state.quality.adaptive && !document.hidden && performance.now() > 3000,
+  });
+  engine.setLoadBudget(loadGuardState);
+  if (loadGuardState.changed) handleLoadGuardTransition(previousGuardLevel, loadGuardState);
   if (!renderer.xr.isPresenting) controls.update();
   updateShow();
   engine.update(dt);
@@ -524,7 +551,7 @@ function animate(now) {
   xrCube?.update(dt);
 
   try {
-    if (usePostProcessing && !renderer.xr.isPresenting && !renderFailedOver) renderPipeline.render();
+    if (usePostProcessing && loadGuardState.postProcessing && !renderer.xr.isPresenting && !renderFailedOver) renderPipeline.render();
     else renderer.render(scene, camera);
   } catch (error) {
     if (!renderFailedOver) {
@@ -561,22 +588,46 @@ function resolveQuality() {
 }
 
 function qualityParticleLimit(quality) {
-  return quality === 'high' ? 22000 : quality === 'low' ? 9000 : 15000;
+  return quality === 'high' ? 16000 : quality === 'low' ? 4000 : 10000;
 }
 
-function applyQuality(quality) {
-  if (!fluid || !world) return;
-  const settings = {
+function qualitySettings(quality) {
+  return {
     high: { pixelRatio: 1.7, reflection: 0.45 },
     medium: { pixelRatio: 1.35, reflection: 0.33 },
     low: { pixelRatio: 1, reflection: 0.2 },
   }[quality] ?? { pixelRatio: 1.35, reflection: 0.33 };
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, settings.pixelRatio));
+}
+
+function applyRuntimeResolution() {
+  const settings = qualitySettings(activeQuality);
+  const guardScale = loadGuardState?.resolutionScale ?? 1;
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, Math.max(0.62, settings.pixelRatio * guardScale)));
+  if (world?.reflectionNode) world.reflectionNode.resolutionScale = settings.reflection * Math.max(0.32, guardScale);
+  world?.setPerformanceLevel(loadGuardState?.level ?? 0);
+  fluid?.setPerformanceLevel(loadGuardState?.level ?? 0);
+  resize();
+}
+
+function handleLoadGuardTransition(previousLevel, next) {
+  applyRuntimeResolution();
+  ui.setPerformanceGuard(next);
+  if (next.level > previousLevel && next.level >= 2) {
+    ui.toast(next.level === 3
+      ? '급증 보호 활성 · 잔상과 후처리 부하를 즉시 낮췄습니다'
+      : '파티클 밀도를 조절해 프레임을 보호합니다');
+  } else if (next.level === 0 && previousLevel > 0) {
+    ui.toast('파티클 부하 안정 · 전체 효과 품질을 복원했습니다');
+  }
+}
+
+function applyQuality(quality) {
+  if (!fluid || !world) return;
+  activeQuality = quality;
+  applyRuntimeResolution();
   syncPostProcessing();
-  world.reflectionNode.resolutionScale = settings.reflection;
   fluid.setQuality(quality);
   adaptiveLevel = quality === 'high' ? 0 : quality === 'medium' ? 1 : 2;
-  resize();
 }
 
 function adaptQuality(fps) {

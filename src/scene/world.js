@@ -18,6 +18,10 @@ const ENVIRONMENTS = Object.freeze({
   cosmic: { top: 0x120526, bottom: 0x05152b, fog: 0x070716, fogDensity: 0.004, moon: 0xc7a5ff, ambient: 0x312758 },
 });
 
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
 function seeded(index) {
   const value = Math.sin(index * 127.1 + 311.7) * 43758.5453123;
   return value - Math.floor(value);
@@ -30,6 +34,7 @@ export class WorldScene extends EventTarget {
     this.renderer = renderer;
     this.state = state;
     this.clock = 0;
+    this.performanceLevel = 0;
     this.customTexture = null;
     this.lights = [];
     this.activeLights = [];
@@ -256,11 +261,15 @@ export class WorldScene extends EventTarget {
   }
 
   addBurstLight({ position, color: lightColor, scale = 1, preset }) {
-    let entry = this.activeLights.find((candidate) => !candidate.light.visible);
+    const lightLimit = [7, 6, 5, 3][this.performanceLevel] ?? 3;
+    const allowedLights = this.lights.slice(0, lightLimit);
+    let entry = this.activeLights.find((candidate) => allowedLights.includes(candidate.light) && !candidate.light.visible);
     if (!entry) {
-      const unused = this.lights.find((light) => !this.activeLights.some((candidate) => candidate.light === light));
-      entry = unused ? { light: unused } : this.activeLights.reduce((oldest, candidate) => candidate.age > oldest.age ? candidate : oldest, this.activeLights[0]);
+      const unused = allowedLights.find((light) => !this.activeLights.some((candidate) => candidate.light === light));
+      const activeAllowed = this.activeLights.filter((candidate) => allowedLights.includes(candidate.light));
+      entry = unused ? { light: unused } : activeAllowed.reduce((oldest, candidate) => candidate.age > oldest.age ? candidate : oldest, activeAllowed[0]);
     }
+    if (!entry) return;
     if (!this.activeLights.includes(entry)) this.activeLights.push(entry);
     entry.age = 0;
     entry.life = 1.05 + scale * 0.28;
@@ -270,7 +279,7 @@ export class WorldScene extends EventTarget {
     entry.light.distance = 34 + scale * 20;
     entry.light.intensity = entry.peak;
     entry.light.visible = true;
-    entry.light.castShadow = this.state.quality.shadows && this.lights.indexOf(entry.light) < 2;
+    entry.light.castShadow = this.state.quality.shadows && this.performanceLevel < 2 && this.lights.indexOf(entry.light) < 2;
   }
 
   addRipple(position, strength) {
@@ -353,8 +362,21 @@ export class WorldScene extends EventTarget {
 
   setShadows(enabled) {
     this.renderer.shadowMap.enabled = enabled;
-    this.moon.castShadow = enabled;
-    for (let index = 0; index < this.lights.length; index += 1) this.lights[index].castShadow = enabled && index < 2;
+    this.moon.castShadow = enabled && this.performanceLevel < 3;
+    for (let index = 0; index < this.lights.length; index += 1) this.lights[index].castShadow = enabled && this.performanceLevel < 2 && index < 2;
+  }
+
+  setPerformanceLevel(level = 0) {
+    this.performanceLevel = clamp(Math.round(Number(level) || 0), 0, 3);
+    const lightLimit = [7, 6, 5, 3][this.performanceLevel];
+    for (let index = this.activeLights.length - 1; index >= 0; index -= 1) {
+      const entry = this.activeLights[index];
+      if (this.lights.indexOf(entry.light) < lightLimit) continue;
+      entry.light.visible = false;
+      entry.light.intensity = 0;
+      this.activeLights.splice(index, 1);
+    }
+    this.setShadows(this.state.quality.shadows);
   }
 
   dispose() {
@@ -368,4 +390,3 @@ export class WorldScene extends EventTarget {
     this.scene.remove(this.floor, this.grid, this.reflectionNode.target, this.stars, ...Object.values(this.groups));
   }
 }
-

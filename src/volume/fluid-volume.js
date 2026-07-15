@@ -54,7 +54,9 @@ export class FluidVolume {
     this.impulses = [];
     this.accumulator = 0;
     this.time = 0;
-    this.updateRate = 12;
+    this.baseUpdateRate = 12;
+    this.performanceLevel = 0;
+    this.updateRate = this.baseUpdateRate;
     this.enabled = true;
 
     this.texture = new THREE.Data3DTexture(this.textureData, this.nx, this.ny, this.nz);
@@ -373,9 +375,16 @@ export class FluidVolume {
     const selected = table[quality] ?? table.medium;
     this.material.steps = selected.steps;
     this.shadowMaterial.steps = selected.shadowSteps;
-    this.updateRate = selected.rate;
+    this.baseUpdateRate = selected.rate;
+    this.setPerformanceLevel(this.performanceLevel);
     this.material.needsUpdate = true;
     this.shadowMaterial.needsUpdate = true;
+  }
+
+  setPerformanceLevel(level = 0) {
+    this.performanceLevel = clamp(Math.round(Number(level) || 0), 0, 3);
+    const rateScale = [1, 0.84, 0.62, 0.42][this.performanceLevel];
+    this.updateRate = Math.max(3, Math.round(this.baseUpdateRate * rateScale));
   }
 
   setVisible(visible) {
@@ -399,4 +408,3 @@ export class FluidVolume {
     this.texture.dispose();
   }
 }
-
