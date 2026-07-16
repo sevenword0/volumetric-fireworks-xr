@@ -1,3 +1,10 @@
+import {
+  DEFAULT_SHOW_CHOREOGRAPHY,
+  SHOW_CHOREOGRAPHY_PRESET_IDS,
+  SHOW_DIRECTION_IDS,
+  getShowChoreographyPreset,
+} from '../audio/show-choreography.js';
+
 export const DEFAULT_STATE = Object.freeze({
   selectedPresetId: 'gold-chrysanthemum',
   launchLayout: 'single',
@@ -29,7 +36,11 @@ export const DEFAULT_STATE = Object.freeze({
     bloomRadius: 0.58,
     bloomThreshold: 0.78,
     saturation: 1,
-    motionBlur: 0.35,
+    motionBlur: 0.62,
+    depthOfField: true,
+    focusDistance: 70,
+    focusRange: 26,
+    bokehScale: 0.65,
     particleBlend: 'additive',
     shadows: true,
     adaptive: true,
@@ -40,10 +51,19 @@ export const DEFAULT_STATE = Object.freeze({
     volume: 0.72,
   },
   show: {
+    musicVolume: 0.78,
     sensitivity: 0.68,
     density: 0.62,
     variety: 0.78,
     finale: 0.85,
+    choreographyPreset: DEFAULT_SHOW_CHOREOGRAPHY.id,
+    directionMode: DEFAULT_SHOW_CHOREOGRAPHY.directionMode,
+    launchPower: DEFAULT_SHOW_CHOREOGRAPHY.launchPower,
+    explosionPower: DEFAULT_SHOW_CHOREOGRAPHY.explosionPower,
+    positionSpread: DEFAULT_SHOW_CHOREOGRAPHY.positionSpread,
+    sequence: DEFAULT_SHOW_CHOREOGRAPHY.sequence,
+    crossfire: DEFAULT_SHOW_CHOREOGRAPHY.crossfire,
+    colorVariation: DEFAULT_SHOW_CHOREOGRAPHY.colorVariation,
   },
 });
 
@@ -58,6 +78,7 @@ function allowed(value, values, fallback) {
 }
 
 export function sanitizeState(candidate = {}) {
+  const showProfile = getShowChoreographyPreset(candidate.show?.choreographyPreset);
   return {
     selectedPresetId: typeof candidate.selectedPresetId === 'string' ? candidate.selectedPresetId : DEFAULT_STATE.selectedPresetId,
     launchLayout: allowed(candidate.launchLayout, ['single', 'pair', 'fan5', 'arc7', 'horizon9', 'circle8', 'finale'], DEFAULT_STATE.launchLayout),
@@ -90,6 +111,10 @@ export function sanitizeState(candidate = {}) {
       bloomThreshold: finite(candidate.quality?.bloomThreshold, DEFAULT_STATE.quality.bloomThreshold, 0, 2),
       saturation: finite(candidate.quality?.saturation, DEFAULT_STATE.quality.saturation, 0, 2),
       motionBlur: finite(candidate.quality?.motionBlur, DEFAULT_STATE.quality.motionBlur, 0, 3),
+      depthOfField: candidate.quality?.depthOfField !== false,
+      focusDistance: finite(candidate.quality?.focusDistance, DEFAULT_STATE.quality.focusDistance, 2, 300),
+      focusRange: finite(candidate.quality?.focusRange, DEFAULT_STATE.quality.focusRange, 1, 160),
+      bokehScale: finite(candidate.quality?.bokehScale, DEFAULT_STATE.quality.bokehScale, 0, 2),
       particleBlend: allowed(candidate.quality?.particleBlend, ['additive', 'screen', 'alpha'], DEFAULT_STATE.quality.particleBlend),
       shadows: candidate.quality?.shadows !== false,
       adaptive: candidate.quality?.adaptive !== false,
@@ -100,10 +125,19 @@ export function sanitizeState(candidate = {}) {
       volume: finite(candidate.sound?.volume, DEFAULT_STATE.sound.volume, 0, 1),
     },
     show: {
+      musicVolume: finite(candidate.show?.musicVolume, DEFAULT_STATE.show.musicVolume, 0, 1),
       sensitivity: finite(candidate.show?.sensitivity, DEFAULT_STATE.show.sensitivity, 0, 1),
       density: finite(candidate.show?.density, DEFAULT_STATE.show.density, 0.1, 1),
       variety: finite(candidate.show?.variety, DEFAULT_STATE.show.variety, 0, 1),
       finale: finite(candidate.show?.finale, DEFAULT_STATE.show.finale, 0, 1),
+      choreographyPreset: allowed(candidate.show?.choreographyPreset, [...SHOW_CHOREOGRAPHY_PRESET_IDS, 'custom'], DEFAULT_STATE.show.choreographyPreset),
+      directionMode: allowed(candidate.show?.directionMode, SHOW_DIRECTION_IDS, showProfile.directionMode),
+      launchPower: finite(candidate.show?.launchPower, showProfile.launchPower, 0.5, 1.6),
+      explosionPower: finite(candidate.show?.explosionPower, showProfile.explosionPower, 0.5, 1.6),
+      positionSpread: finite(candidate.show?.positionSpread, showProfile.positionSpread, 0, 1.5),
+      sequence: finite(candidate.show?.sequence, showProfile.sequence, 0, 1),
+      crossfire: finite(candidate.show?.crossfire, showProfile.crossfire, 0, 1),
+      colorVariation: finite(candidate.show?.colorVariation, showProfile.colorVariation, 0, 1),
     },
   };
 }

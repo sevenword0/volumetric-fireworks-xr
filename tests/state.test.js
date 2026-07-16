@@ -20,9 +20,21 @@ test('numeric state is clamped to safe simulation ranges', () => {
     physics: { gravity: 20, drag: -4, windX: 99, windZ: -99, vortex: Infinity },
     volume: { smoke: 8, buoyancy: -1, scattering: 9, shadow: 10 },
     world: { waterRoughness: 8, reflection: -2 },
-    quality: { fireworkBrightness: 9, bloomStrength: 9, bloomRadius: -1, bloomThreshold: 4, saturation: 8, motionBlur: -2 },
+    quality: { fireworkBrightness: 9, bloomStrength: 9, bloomRadius: -1, bloomThreshold: 4, saturation: 8, motionBlur: -2, focusDistance: -8, focusRange: 999, bokehScale: 9 },
     sound: { volume: 6 },
-    show: { sensitivity: 7, density: 0, variety: -1, finale: 4 },
+    show: {
+      musicVolume: 8,
+      sensitivity: 7,
+      density: 0,
+      variety: -1,
+      finale: 4,
+      launchPower: 9,
+      explosionPower: -2,
+      positionSpread: 8,
+      sequence: -1,
+      crossfire: 7,
+      colorVariation: -4,
+    },
   });
   assert.deepEqual(state.physics, { gravity: 2, drag: 0, windX: 8, windZ: -8, vortex: 0.42 });
   assert.deepEqual(state.volume, { smoke: 1.5, buoyancy: 0, scattering: 3, shadow: 4 });
@@ -34,30 +46,83 @@ test('numeric state is clamped to safe simulation ranges', () => {
   assert.equal(state.quality.bloomThreshold, 2);
   assert.equal(state.quality.saturation, 2);
   assert.equal(state.quality.motionBlur, 0);
+  assert.equal(state.quality.focusDistance, 2);
+  assert.equal(state.quality.focusRange, 160);
+  assert.equal(state.quality.bokehScale, 2);
   assert.equal(state.sound.volume, 1);
-  assert.deepEqual(state.show, { sensitivity: 1, density: 0.1, variety: 0, finale: 1 });
+  assert.deepEqual(state.show, {
+    musicVolume: 1,
+    sensitivity: 1,
+    density: 0.1,
+    variety: 0,
+    finale: 1,
+    choreographyPreset: 'balanced',
+    directionMode: 'music',
+    launchPower: 1.6,
+    explosionPower: 0.5,
+    positionSpread: 1.5,
+    sequence: 0,
+    crossfire: 1,
+    colorVariation: 0,
+  });
 });
 
 test('unknown enum values fall back instead of entering the renderer', () => {
-  const state = sanitizeState({ launchLayout: 'unsafe', tool: 'laser', world: { environment: 'url', floor: 'lava' }, quality: { preset: 'ultra', particleBlend: 'burn' } });
+  const state = sanitizeState({ launchLayout: 'unsafe', tool: 'laser', world: { environment: 'url', floor: 'lava' }, quality: { preset: 'ultra', particleBlend: 'burn' }, show: { choreographyPreset: 'unsafe', directionMode: 'backward' } });
   assert.equal(state.launchLayout, 'single');
   assert.equal(state.tool, 'camera');
   assert.equal(state.world.environment, 'lake');
   assert.equal(state.world.floor, 'water');
   assert.equal(state.quality.preset, 'auto');
   assert.equal(state.quality.particleBlend, 'additive');
+  assert.equal(state.show.choreographyPreset, 'balanced');
+  assert.equal(state.show.directionMode, 'music');
+});
+
+test('music choreography settings persist with custom direction and strengths', () => {
+  const state = sanitizeState({
+    show: {
+      choreographyPreset: 'custom',
+      directionMode: 'cross',
+      launchPower: 1.32,
+      explosionPower: 1.18,
+      positionSpread: 1.2,
+      sequence: 0.76,
+      crossfire: 0.9,
+      colorVariation: 0.82,
+    },
+  });
+  assert.equal(state.show.choreographyPreset, 'custom');
+  assert.equal(state.show.directionMode, 'cross');
+  assert.equal(state.show.launchPower, 1.32);
+  assert.equal(state.show.explosionPower, 1.18);
+  assert.equal(state.show.positionSpread, 1.2);
+  assert.equal(state.show.sequence, 0.76);
+  assert.equal(state.show.crossfire, 0.9);
+  assert.equal(state.show.colorVariation, 0.82);
+});
+
+test('a saved choreography preset restores its own missing control defaults', () => {
+  const state = sanitizeState({ show: { choreographyPreset: 'beat-chase' } });
+  assert.equal(state.show.directionMode, 'alternate');
+  assert.equal(state.show.launchPower, 1.14);
+  assert.equal(state.show.explosionPower, 0.94);
+  assert.equal(state.show.sequence, 0.84);
 });
 
 test('visual effects and impact sound settings persist after sanitization', () => {
   const state = sanitizeState({
-    quality: { fireworkBrightness: 1.8, bloom: false, bloomStrength: 1.4, bloomRadius: 0.3, bloomThreshold: 1.1, saturation: 1.6, motionBlur: 0.8, particleBlend: 'screen', predictiveLoad: false },
+    quality: { fireworkBrightness: 1.8, bloom: false, bloomStrength: 1.4, bloomRadius: 0.3, bloomThreshold: 1.1, saturation: 1.6, motionBlur: 0.8, depthOfField: false, focusDistance: 94, focusRange: 18, bokehScale: 1.2, particleBlend: 'screen', predictiveLoad: false },
     sound: { enabled: false, volume: 0.35 },
+    show: { musicVolume: 0.42 },
   });
   assert.deepEqual(state.quality, {
     preset: 'auto', fireworkBrightness: 1.8, bloom: false, bloomStrength: 1.4, bloomRadius: 0.3, bloomThreshold: 1.1,
-    saturation: 1.6, motionBlur: 0.8, particleBlend: 'screen', shadows: true, adaptive: true, predictiveLoad: false,
+    saturation: 1.6, motionBlur: 0.8, depthOfField: false, focusDistance: 94, focusRange: 18, bokehScale: 1.2,
+    particleBlend: 'screen', shadows: true, adaptive: true, predictiveLoad: false,
   });
   assert.deepEqual(state.sound, { enabled: false, volume: 0.35 });
+  assert.equal(state.show.musicVolume, 0.42);
 });
 
 test('saved state is loaded and sanitized', () => {

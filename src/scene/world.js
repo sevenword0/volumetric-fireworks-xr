@@ -10,6 +10,7 @@ import {
   uv,
   vec2,
 } from 'three/tsl';
+import { enableVolumeShadowCasters } from '../core/render-layers.js';
 
 const ENVIRONMENTS = Object.freeze({
   lake: { top: 0x050918, bottom: 0x132340, fog: 0x07111f, fogDensity: 0.008, moon: 0xbfd9ff, ambient: 0x263d66 },
@@ -37,7 +38,9 @@ export class WorldScene extends EventTarget {
     this.performanceLevel = 0;
     this.customTexture = null;
     this.lights = [];
+    this.lightEntries = [];
     this.activeLights = [];
+    this.nextMoonShadowUpdate = 0;
     this.colliders = [];
     this.groups = {};
     this.skyTop = uniform(new THREE.Color(ENVIRONMENTS.lake.top));
@@ -66,6 +69,8 @@ export class WorldScene extends EventTarget {
     moon.shadow.camera.far = 100;
     moon.shadow.bias = -0.00035;
     moon.shadow.normalBias = 0.025;
+    moon.shadow.autoUpdate = false;
+    enableVolumeShadowCasters(moon.shadow.camera);
     scene.add(moon);
     this.moon = moon;
 
@@ -206,7 +211,7 @@ export class WorldScene extends EventTarget {
       sin(floorUv.x.mul(7).add(floorUv.y.mul(4)).add(time.mul(0.75))),
       cos(floorUv.y.mul(8).sub(floorUv.x.mul(3)).sub(time.mul(0.58))),
     ).mul(this.waveStrength);
-    this.reflectionNode = reflector({ resolutionScale: 0.38 });
+    this.reflectionNode = reflector({ resolutionScale: 0.38, bounces: false });
     this.reflectionNode.target.rotateX(-Math.PI / 2);
     this.reflectionNode.target.position.y = 0.015;
     this.reflectionNode.uvNode = this.reflectionNode.uvNode.add(wave);
@@ -248,26 +253,32 @@ export class WorldScene extends EventTarget {
       const light = new THREE.PointLight(0xffffff, 0, 42, 2);
       light.name = `Burst light ${index + 1}`;
       light.visible = false;
-      if (index < 2) {
+      if (index < 1) {
         light.castShadow = true;
         light.shadow.mapSize.set(512, 512);
         light.shadow.camera.near = 0.5;
         light.shadow.camera.far = 58;
         light.shadow.bias = -0.001;
+        light.shadow.autoUpdate = false;
+        enableVolumeShadowCasters(light.shadow.camera);
       }
       this.scene.add(light);
       this.lights.push(light);
+      this.lightEntries.push({ light, index, age: Infinity, life: 0, peak: 0, nextShadowUpdate: 0 });
     }
   }
 
   addBurstLight({ position, color: lightColor, scale = 1, preset, brightness = this.state.quality.fireworkBrightness ?? 1 }) {
-    const lightLimit = [7, 6, 5, 3][this.performanceLevel] ?? 3;
-    const allowedLights = this.lights.slice(0, lightLimit);
-    let entry = this.activeLights.find((candidate) => allowedLights.includes(candidate.light) && !candidate.light.visible);
-    if (!entry) {
-      const unused = allowedLights.find((light) => !this.activeLights.some((candidate) => candidate.light === light));
-      const activeAllowed = this.activeLights.filter((candidate) => allowedLights.includes(candidate.light));
-      entry = unused ? { light: unused } : activeAllowed.reduce((oldest, candidate) => candidate.age > oldest.age ? candidate : oldest, activeAllowed[0]);
+    const lightLimit = [4, 3, 2, 1][this.performanceLevel] ?? 1;
+    const shadowLimit = [1, 0, 0, 0][this.performanceLevel] ?? 0;
+    let entry = null;
+    for (let index = 0; index < lightLimit; index += 1) {
+      const candidate = this.lightEntries[index];
+      if (!candidate.light.visible) {
+        entry = candidate;
+        break;
+      }
+      if (!entry || candidate.age > entry.age) entry = candidate;
     }
     if (!entry) return;
     if (!this.activeLights.includes(entry)) this.activeLights.push(entry);
@@ -279,7 +290,14 @@ export class WorldScene extends EventTarget {
     entry.light.distance = 34 + scale * 20;
     entry.light.intensity = entry.peak * clamp(brightness, 0.1, 3);
     entry.light.visible = true;
-    entry.light.castShadow = this.state.quality.shadows && this.performanceLevel < 2 && this.lights.indexOf(entry.light) < 2;
+    const lightIndex = entry.index;
+    if (entry.light.castShadow) {
+      const shadowActive = this.state.quality.shadows && lightIndex < shadowLimit;
+      entry.light.shadow.intensity = shadowActive ? 1 : 0;
+      entry.light.shadow.autoUpdate = false;
+      entry.nextShadowUpdate = this.clock + 0.14;
+      if (shadowActive) entry.light.shadow.needsUpdate = true;
+    }
   }
 
   addRipple(position, strength) {
@@ -343,6 +361,11 @@ export class WorldScene extends EventTarget {
     this.stars.rotation.y += dt * 0.002;
     this.groups.cosmic.rotation.y += dt * 0.014;
 
+    if (this.state.quality.shadows && this.performanceLevel === 0 && this.clock >= this.nextMoonShadowUpdate) {
+      this.moon.shadow.needsUpdate = true;
+      this.nextMoonShadowUpdate = this.clock + 0.25;
+    }
+
     for (let index = this.activeLights.length - 1; index >= 0; index -= 1) {
       const entry = this.activeLights[index];
       entry.age += dt;
@@ -358,21 +381,71 @@ export class WorldScene extends EventTarget {
       const flicker = 0.9 + Math.sin(this.clock * 39 + index * 1.7) * 0.1;
       const fireworkBrightness = clamp(this.state.quality.fireworkBrightness ?? 1, 0.1, 3);
       entry.light.intensity = entry.peak * fireworkBrightness * attack * decay * flicker;
+      if (entry.light.castShadow
+        && entry.light.shadow.intensity > 0
+        && this.clock >= entry.nextShadowUpdate) {
+        entry.light.shadow.needsUpdate = true;
+        entry.nextShadowUpdate = this.clock + 0.14;
+      }
     }
   }
 
+  preparePipelineWarmup() {
+    if (this.activeLights.length > 0) return null;
+    const states = this.lightEntries.map((entry) => ({
+      visible: entry.light.visible,
+      intensity: entry.light.intensity,
+      shadowIntensity: entry.light.castShadow ? entry.light.shadow.intensity : 0,
+    }));
+    for (let index = 0; index < 4; index += 1) {
+      const entry = this.lightEntries[index];
+      entry.light.visible = true;
+      entry.light.intensity = 0.0001;
+      if (entry.light.castShadow) {
+        entry.light.shadow.intensity = 1;
+        entry.light.shadow.autoUpdate = false;
+        entry.light.shadow.needsUpdate = true;
+      }
+    }
+    this.moon.shadow.needsUpdate = true;
+    return states;
+  }
+
+  finishPipelineWarmup(states) {
+    if (!states) return;
+    for (let index = 0; index < states.length; index += 1) {
+      const entry = this.lightEntries[index];
+      entry.light.visible = states[index].visible;
+      entry.light.intensity = states[index].intensity;
+      if (entry.light.castShadow) entry.light.shadow.intensity = states[index].shadowIntensity;
+    }
+    this.setShadows(this.state.quality.shadows);
+  }
+
   setShadows(enabled) {
-    this.renderer.shadowMap.enabled = enabled;
-    this.moon.castShadow = enabled && this.performanceLevel < 3;
-    for (let index = 0; index < this.lights.length; index += 1) this.lights[index].castShadow = enabled && this.performanceLevel < 2 && index < 2;
+    const shadowLimit = [1, 0, 0, 0][this.performanceLevel] ?? 0;
+    const moonActive = enabled && this.performanceLevel === 0;
+    this.moon.shadow.intensity = moonActive ? 1 : 0;
+    this.moon.shadow.autoUpdate = false;
+    if (moonActive) {
+      this.moon.shadow.needsUpdate = true;
+      this.nextMoonShadowUpdate = this.clock + 0.25;
+    }
+    for (let index = 0; index < this.lights.length; index += 1) {
+      if (!this.lights[index].castShadow) continue;
+      const active = enabled && index < shadowLimit;
+      this.lights[index].shadow.intensity = active ? 1 : 0;
+      this.lights[index].shadow.autoUpdate = false;
+      if (active) this.lights[index].shadow.needsUpdate = true;
+    }
   }
 
   setPerformanceLevel(level = 0) {
     this.performanceLevel = clamp(Math.round(Number(level) || 0), 0, 3);
-    const lightLimit = [7, 6, 5, 3][this.performanceLevel];
+    const lightLimit = [4, 3, 2, 1][this.performanceLevel];
     for (let index = this.activeLights.length - 1; index >= 0; index -= 1) {
       const entry = this.activeLights[index];
-      if (this.lights.indexOf(entry.light) < lightLimit) continue;
+      if (entry.index < lightLimit) continue;
       entry.light.visible = false;
       entry.light.intensity = 0;
       this.activeLights.splice(index, 1);

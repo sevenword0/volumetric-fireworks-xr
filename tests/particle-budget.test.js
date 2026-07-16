@@ -73,3 +73,137 @@ test('global brightness scales particle HDR output and clamps unsafe values', ()
   assert.equal(engine.setGlobalBrightness(0), 0.1);
   engine.dispose();
 });
+
+test('music choreography reaches shell velocity, burst scale, mirrored salvos, and hue variation', () => {
+  const engine = createEngine(1000);
+  const preset = FIREWORK_PRESETS[0];
+  const launchCount = engine.launchLayout(preset, 'pair', {
+    x: -12,
+    yaw: 0.62,
+    launchPower: 1.35,
+    explosionPower: 1.3,
+    sequenceDelay: 0.09,
+    crossLaunch: true,
+    colorHue: 0.22,
+    colorVariation: 0.8,
+  });
+  assert.equal(launchCount, 4);
+  assert.equal(engine.scheduled.length, 4);
+  assert.ok(engine.scheduled[0].x < 0);
+  assert.ok(engine.scheduled.some((item) => item.x > 0 && item.yaw < 0));
+  assert.ok(engine.scheduled[2].at > engine.scheduled[0].at);
+
+  engine.launchNow(preset, {
+    launchPower: 1.35,
+    explosionPower: 1.3,
+    colorHue: 0.22,
+    colorVariation: 0.8,
+  });
+  const shell = engine.particles.find((particle) => particle.preset === preset);
+  assert.ok(shell.velocity.y > preset.launchVelocity * 1.2);
+  assert.equal(shell.burstScale, 1.3);
+  assert.ok(shell.life > shell.fuse);
+  assert.equal(shell.colorHue, 0.22);
+  assert.equal(shell.colorVariation, 0.8);
+  engine.dispose();
+
+  const baseEngine = createEngine(128);
+  const hueEngine = createEngine(128);
+  baseEngine.setLoadBudget({ softLimit: 128, maxSpawnPerFrame: 128, burstScale: 0.08, trailScale: 0, smokeStride: 1 });
+  hueEngine.setLoadBudget({ softLimit: 128, maxSpawnPerFrame: 128, burstScale: 0.08, trailScale: 0, smokeStride: 1 });
+  baseEngine.burst(preset, new THREE.Vector3(), undefined, 1, 0, { colorHue: 0, colorVariation: 0 });
+  hueEngine.burst(preset, new THREE.Vector3(), undefined, 1, 0, { colorHue: 0.25, colorVariation: 1 });
+  assert.notEqual(baseEngine.particles[0].color.getHex(), hueEngine.particles[0].color.getHex());
+  assert.equal(hueEngine.particles[0].colorShift, true);
+  baseEngine.dispose();
+  hueEngine.dispose();
+});
+
+test('scaled music shells keep enough lifetime to reach their burst event', () => {
+  const engine = createEngine(1000);
+  const preset = FIREWORK_PRESETS[0];
+  engine.setLoadBudget({ softLimit: 1000, maxSpawnPerFrame: 1000, burstScale: 0.2, trailScale: 0, smokeStride: 1 });
+  let burstEvents = 0;
+  engine.addEventListener('burst', () => { burstEvents += 1; });
+  engine.launchNow(preset, { scale: 1.28, launchPower: 1.45, explosionPower: 1.2, colorHue: 0.2, colorVariation: 0.8 });
+  for (let frame = 0; frame < 210; frame += 1) engine.update(1 / 60);
+  assert.equal(burstEvents, 1);
+  assert.ok(engine.particles.some((particle) => particle.preset === preset && particle.fuse === Infinity));
+  engine.dispose();
+});
+
+test('particle motion vectors retain the exact previous simulated position', () => {
+  const engine = createEngine(32);
+  engine.setLoadBudget({ softLimit: 32, maxSpawnPerFrame: 32, renderLimit: 32 });
+  const particle = engine.acquire();
+  particle.position.set(1, 12, -3);
+  particle.velocity.set(9, 0, 0);
+  particle.life = 4;
+  particle.size = 0.2;
+  particle.color.set(0xffffff);
+  particle.colorNext.set(0xffffff);
+  engine.update(1 / 60);
+  assert.equal(engine.previousPositionArray[0], 1);
+  assert.equal(engine.previousPositionArray[1], 12);
+  assert.equal(engine.previousPositionArray[2], -3);
+  assert.ok(engine.positionArray[0] > engine.previousPositionArray[0]);
+  assert.equal(engine.performanceDiagnostics.motionVectorParticles, 1);
+  engine.dispose();
+});
+
+test('render LOD keeps core particles and caps GPU instances without deleting simulation state', () => {
+  const engine = createEngine();
+  engine.setLoadBudget({
+    softLimit: 1000,
+    maxSpawnPerFrame: 1000,
+    burstScale: 0.3,
+    trailScale: 1,
+    smokeStride: 1,
+    cullPerFrame: 0,
+    renderLimit: 24,
+    particleScale: 0.8,
+  });
+  engine.burst(FIREWORK_PRESETS[0], new THREE.Vector3());
+  const activeBefore = engine.activeCount;
+  assert.ok(activeBefore > 24);
+  engine.updateAttributes();
+  assert.equal(engine.renderedCount, 24);
+  assert.equal(engine.sprite.count, 24);
+  assert.equal(engine.activeCount, activeBefore);
+  assert.ok(engine.scaleArray[0] > 0);
+  engine.dispose();
+});
+
+test('delayed invisible stars do not consume the GPU instance budget', () => {
+  const engine = createEngine();
+  engine.setLoadBudget({ softLimit: 1000, maxSpawnPerFrame: 1000, burstScale: 0.2, renderLimit: 1000 });
+  engine.burst(FIREWORK_PRESETS[0], new THREE.Vector3());
+  for (const particle of engine.particles) particle.age = -0.2;
+  engine.updateAttributes();
+  assert.equal(engine.renderedCount, 0);
+  assert.equal(engine.sprite.count, 0);
+  engine.dispose();
+});
+
+test('same-frame particle spikes receive an immediate render cap before the next guard sample', () => {
+  const engine = createEngine(1000);
+  engine.setLoadBudget({ softLimit: 1000, maxSpawnPerFrame: 1000, renderLimit: 1000, particleScale: 1 });
+  for (let index = 0; index < 500; index += 1) engine.acquire();
+  engine.updateAttributes();
+  assert.equal(engine.activeCount, 500);
+  assert.equal(engine.renderLimit, 300);
+  assert.equal(engine.renderedCount, 300);
+  engine.dispose();
+});
+
+test('particle capacity is prewarmed so a full show does not allocate during bursts or trails', () => {
+  const engine = createEngine(512);
+  assert.equal(engine.performanceDiagnostics.allocatedParticles, 512);
+  assert.equal(engine.performanceDiagnostics.pooledParticles, 512);
+  engine.setLoadBudget({ softLimit: 512, maxSpawnPerFrame: 512, burstScale: 1, trailScale: 1, renderLimit: 512 });
+  engine.burst(FIREWORK_PRESETS[0], new THREE.Vector3());
+  for (let frame = 0; frame < 12; frame += 1) engine.update(1 / 60);
+  assert.equal(engine.performanceDiagnostics.poolMisses, 0);
+  assert.equal(engine.performanceDiagnostics.allocatedParticles, 512);
+  engine.dispose();
+});

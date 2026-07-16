@@ -7,8 +7,9 @@ import { motionBlur } from 'three/addons/tsl/display/MotionBlur.js';
 import WebGPU from 'three/addons/capabilities/WebGPU.js';
 import { AudioShowController, getPresetForCue } from './audio/audio-show.js';
 import { FireworkSoundEngine } from './audio/firework-sound.js';
-import { ParticleLoadGuard } from './core/particle-load-guard.js';
+import { ParticleLoadGuard, particleLoadLevel } from './core/particle-load-guard.js';
 import { ParticleLoadPlanner } from './core/particle-load-planner.js';
+import { BOKEH_SAMPLE_COUNT, bokehDepthOfField } from './core/post-effects.js';
 import { createAppState } from './core/state.js';
 import { FIREWORK_PRESETS } from './pyro/presets.js';
 import { FireworkEngine } from './pyro/firework-engine.js';
@@ -19,16 +20,16 @@ import { FluidVolume } from './volume/fluid-volume.js';
 
 const canvas = document.getElementById('stage');
 const store = createAppState();
-const audio = new AudioShowController();
-const ui = new AppUI(store, audio);
 const state = store.state;
+const audio = new AudioShowController({ volume: state.show.musicVolume });
+const ui = new AppUI(store, audio);
 const fireworkSound = new FireworkSoundEngine(state);
 const particleLoadGuard = new ParticleLoadGuard();
 const particleLoadPlanner = new ParticleLoadPlanner();
 
 const scene = new THREE.Scene();
 scene.name = 'PYROVERSE XR scene';
-const camera = new THREE.PerspectiveCamera(48, window.innerWidth / window.innerHeight, 0.08, 320);
+const camera = new THREE.PerspectiveCamera(48, window.innerWidth / window.innerHeight, 0.08, 700);
 camera.position.set(0, 18, 68);
 camera.lookAt(0, 22, 0);
 
@@ -41,7 +42,9 @@ const renderer = new THREE.WebGPURenderer({
 });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
-renderer.shadowMap.enabled = state.quality.shadows;
+// Keep shadow resources stable across adaptive quality transitions. Individual
+// lights pause their shadow updates and fade shadow intensity instead.
+renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.shadowMap.transmitted = true;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -53,10 +56,15 @@ const controls = new OrbitControls(camera, canvas);
 controls.target.set(0, 22, 0);
 controls.enableDamping = true;
 controls.dampingFactor = 0.065;
-controls.minDistance = 15;
-controls.maxDistance = 92;
-controls.minPolarAngle = Math.PI * 0.1;
-controls.maxPolarAngle = Math.PI * 0.49;
+controls.enablePan = true;
+controls.screenSpacePanning = true;
+controls.panSpeed = 0.9;
+controls.rotateSpeed = 0.68;
+controls.zoomSpeed = 1.15;
+controls.minDistance = 4;
+controls.maxDistance = 260;
+controls.minPolarAngle = Math.PI * 0.025;
+controls.maxPolarAngle = Math.PI * 0.58;
 controls.zoomToCursor = true;
 controls.update();
 
@@ -65,16 +73,22 @@ let fluid;
 let engine;
 let xrCube;
 let renderPipeline;
+let bokehRenderPipeline;
 let bloomNode;
 let scenePass;
 let saturationAmount;
 let motionBlurAmount;
+let focusDistanceAmount;
+let focusRangeAmount;
+let bokehScaleAmount;
 let usePostProcessing = true;
+let runtimePostProcessing = true;
 let renderFailedOver = false;
 let xrSession = null;
 let showCues = [];
 let nextCueIndex = 0;
 let lastShowTime = 0;
+let lastShowCueLaunch = null;
 let started = false;
 let adaptiveLevel = 0;
 let fpsAverage = 60;
@@ -89,6 +103,8 @@ let loadGuardState = null;
 let loadForecastState = null;
 let showLoadPlan = { eventCount: 0, windowCount: 0, windows: [] };
 let activeQuality = 'medium';
+let pipelineWarmupMs = 0;
+let pendingRuntimeResolutionSync = false;
 const pointer = new THREE.Vector2();
 const raycaster = new THREE.Raycaster();
 const interactionPlane = new THREE.Plane();
@@ -102,7 +118,7 @@ const planePoint = new THREE.Vector3(0, 22, 0);
 async function initialize() {
   try {
     await renderer.init();
-    const webgpuBackend = WebGPU.isAvailable() && renderer.backend?.isWebGPUBackend !== false;
+    const webgpuBackend = renderer.backend?.isWebGPUBackend === true;
     ui.setRendererStatus({ webgpu: webgpuBackend, label: webgpuBackend ? 'WEBGPU / TSL' : 'WEBGL 2 FALLBACK' });
 
     world = new WorldScene(scene, renderer, state);
@@ -130,6 +146,7 @@ async function initialize() {
     setupXR();
     applyQuality(resolveQuality());
     resize();
+    await warmupRenderPaths();
 
     xrCube = new XRCubeUI(scene, camera, renderer, state, createCubeCallbacks());
     renderer.setAnimationLoop(animate);
@@ -153,14 +170,37 @@ async function initialize() {
       particleLoadPlanner,
       state,
       launch: (presetId = state.selectedPresetId, layout = state.launchLayout) => launchPreset(FIREWORK_PRESETS.find((preset) => preset.id === presetId) ?? FIREWORK_PRESETS[0], layout),
+      setCameraView,
       clear: clearSimulation,
       diagnostics: () => ({
         backend: renderer.backend?.constructor?.name ?? 'unknown',
         webgpu: Boolean(renderer.backend?.isWebGPUBackend),
         particles: engine.activeCount,
+        renderedParticles: engine.renderedCount,
+        particleRenderLimit: engine.renderLimit,
         volumeGrid: [fluid.nx, fluid.ny, fluid.nz],
+        volumePerformance: {
+          steps: fluid.material.steps,
+          shadowSteps: fluid.shadowMaterial.steps,
+          updateRate: fluid.updateRate,
+          slicesPerFrame: fluid.simulationSlicesPerFrame,
+          simulationProgress: fluid.simulationProgress,
+          ...fluid.performanceDiagnostics,
+        },
+        particlePerformance: engine.performanceDiagnostics,
+        pipelineWarmupMs,
         xrPresenting: renderer.xr.isPresenting,
         fps: fpsAverage,
+        camera: {
+          position: camera.position.toArray(),
+          target: controls.target.toArray(),
+          distance: camera.position.distanceTo(controls.target),
+          minDistance: controls.minDistance,
+          maxDistance: controls.maxDistance,
+          minPolarAngle: controls.minPolarAngle,
+          maxPolarAngle: controls.maxPolarAngle,
+          panEnabled: controls.enablePan,
+        },
         effects: {
           bloom: state.quality.bloom,
           fireworkBrightness: state.quality.fireworkBrightness,
@@ -169,23 +209,43 @@ async function initialize() {
           bloomThreshold: state.quality.bloomThreshold,
           saturation: state.quality.saturation,
           motionBlur: state.quality.motionBlur,
+          particleMotionVectors: true,
+          depthOfField: state.quality.depthOfField,
+          focusDistance: state.quality.focusDistance,
+          focusRange: state.quality.focusRange,
+          bokehScale: state.quality.bokehScale,
+          bokehSamples: BOKEH_SAMPLE_COUNT,
           particleBlend: engine.blendingMode,
           predictiveLoad: state.quality.predictiveLoad,
+          postProcessingActive: runtimePostProcessing,
         },
         sound: {
           enabled: state.sound.enabled,
           volume: state.sound.volume,
+          musicVolume: audio.volume,
           activeVoices: fireworkSound.activeVoices,
           ready: fireworkSound.context?.state === 'running',
+        },
+        show: {
+          playing: audio.playing,
+          cueCount: showCues.length,
+          nextCueIndex,
+          choreography: { ...state.show },
+          lastLaunch: lastShowCueLaunch ? { ...lastShowCueLaunch } : null,
         },
         loadGuard: loadGuardState ? {
           level: loadGuardState.level,
           mode: loadGuardState.name,
+          admissionLevel: loadGuardState.admissionLevel,
+          forecastLed: loadGuardState.forecastLed,
           loadRatio: loadGuardState.loadRatio,
           frameMs: loadGuardState.frameEma,
           softLimit: loadGuardState.softLimit,
+          renderLimit: loadGuardState.renderLimit,
           maxSpawnPerFrame: loadGuardState.maxSpawnPerFrame,
           trailScale: loadGuardState.trailScale,
+          particleScale: loadGuardState.particleScale,
+          reflectionScale: loadGuardState.reflectionScale,
           postProcessing: loadGuardState.postProcessing,
           forecastParticles: loadGuardState.forecastParticles,
           forecastRatio: loadGuardState.forecastRatio,
@@ -215,23 +275,59 @@ function setupPostProcessing() {
   const sceneColor = scenePass.getTextureNode();
   saturationAmount = uniform(state.quality.saturation);
   motionBlurAmount = uniform(state.quality.motionBlur);
+  focusDistanceAmount = uniform(state.quality.focusDistance);
+  focusRangeAmount = uniform(state.quality.focusRange);
+  bokehScaleAmount = uniform(state.quality.bokehScale);
   const velocityTexture = scenePass.getTextureNode('velocity').mul(motionBlurAmount);
   const motionColor = motionBlur(sceneColor, velocityTexture, int(8));
   bloomNode = bloom(motionColor);
   const composite = motionColor.add(bloomNode);
   renderPipeline = new THREE.RenderPipeline(renderer);
   renderPipeline.outputNode = vec4(saturation(composite.rgb, saturationAmount), composite.a);
+  const bokehColor = bokehDepthOfField(composite, scenePass.getViewZNode(), focusDistanceAmount, focusRangeAmount, bokehScaleAmount);
+  bokehRenderPipeline = new THREE.RenderPipeline(renderer);
+  bokehRenderPipeline.outputNode = vec4(saturation(bokehColor.rgb, saturationAmount), bokehColor.a);
   syncPostProcessing();
 }
 
 function syncPostProcessing() {
-  if (!bloomNode || !saturationAmount || !motionBlurAmount) return;
+  if (!bloomNode || !saturationAmount || !motionBlurAmount || !focusDistanceAmount || !focusRangeAmount || !bokehScaleAmount) return;
   bloomNode.threshold.value = state.quality.bloomThreshold;
   bloomNode.strength.value = state.quality.bloom ? state.quality.bloomStrength : 0;
   bloomNode.radius.value = state.quality.bloomRadius;
   saturationAmount.value = state.quality.saturation;
   motionBlurAmount.value = state.quality.motionBlur;
-  usePostProcessing = state.quality.bloom || state.quality.motionBlur > 0.001 || Math.abs(state.quality.saturation - 1) > 0.001;
+  focusDistanceAmount.value = state.quality.focusDistance;
+  focusRangeAmount.value = state.quality.focusRange;
+  bokehScaleAmount.value = state.quality.bokehScale;
+  usePostProcessing = state.quality.bloom
+    || (state.quality.depthOfField && state.quality.bokehScale > 0.001)
+    || state.quality.motionBlur > 0.001
+    || Math.abs(state.quality.saturation - 1) > 0.001;
+}
+
+function getActiveRenderPipeline() {
+  return state.quality.depthOfField && state.quality.bokehScale > 0.001 ? bokehRenderPipeline : renderPipeline;
+}
+
+async function warmupRenderPaths() {
+  const startedAt = performance.now();
+  const particleWarmup = engine.prepareRenderWarmup();
+  const lightStates = world.preparePipelineWarmup();
+  try {
+    if (typeof renderer.compileAsync === 'function') await renderer.compileAsync(scene, camera);
+    renderer.render(scene, camera);
+    if (renderPipeline) renderPipeline.render();
+    if (bokehRenderPipeline) bokehRenderPipeline.render();
+    const queue = renderer.backend?.device?.queue;
+    if (typeof queue?.onSubmittedWorkDone === 'function') await queue.onSubmittedWorkDone();
+  } catch (error) {
+    console.warn('Renderer warmup could not complete every path', error);
+  } finally {
+    if (particleWarmup) engine.finishRenderWarmup();
+    world.finishPipelineWarmup(lightStates);
+    pipelineWarmupMs = performance.now() - startedAt;
+  }
 }
 
 async function armFireworkSound() {
@@ -294,12 +390,13 @@ function setupUIEvents() {
     }
   });
   ui.addEventListener('floormode', (event) => world.setFloorMode(event.detail.value));
+  ui.addEventListener('cameraview', (event) => setCameraView(event.detail.value));
   ui.addEventListener('quality', (event) => applyQuality(event.detail.value === 'auto' ? resolveQuality() : event.detail.value));
   ui.addEventListener('qualitytoggle', (event) => {
-    if (event.detail.key === 'bloom') syncPostProcessing();
+    if (event.detail.key === 'bloom' || event.detail.key === 'depthOfField') syncPostProcessing();
     if (event.detail.key === 'shadows') {
       world.setShadows(event.detail.value);
-      fluid.shadowMesh.visible = event.detail.value && fluid.enabled;
+      fluid.setShadows(event.detail.value);
     }
     if (event.detail.key === 'predictiveLoad') {
       particleLoadPlanner.clearManualPlan();
@@ -313,6 +410,7 @@ function setupUIEvents() {
     if (event.detail.path === 'quality.particleBlend') engine.setBlendingMode(event.detail.value);
     if (event.detail.path === 'quality.fireworkBrightness') engine.setGlobalBrightness(event.detail.value);
     if (event.detail.path === 'sound.volume') fireworkSound.setVolume();
+    if (event.detail.path === 'show.musicVolume') audio.setVolume(event.detail.value);
   });
   ui.addEventListener('soundtoggle', (event) => {
     fireworkSound.setEnabled();
@@ -323,6 +421,10 @@ function setupUIEvents() {
     showCues = event.detail.cues;
     nextCueIndex = 0;
     refreshShowLoadPlan();
+  });
+  ui.addEventListener('showpreview', (event) => {
+    void armFireworkSound();
+    launchShowCue(event.detail.cue, true);
   });
   ui.addEventListener('showplay', (event) => {
     void armFireworkSound();
@@ -340,7 +442,43 @@ function setupUIEvents() {
   ui.addEventListener('xrrequest', requestXRSession);
 }
 
+const CAMERA_VIEWS = Object.freeze({
+  default: { position: [0, 18, 68], target: [0, 22, 0] },
+  wide: { position: [0, 9, 170], target: [0, 28, 0] },
+  low: { position: [0, 2.2, 94], target: [0, 26, 0] },
+});
+
+function setCameraView(name = 'default') {
+  const view = CAMERA_VIEWS[name] ?? CAMERA_VIEWS.default;
+  const resolvedName = CAMERA_VIEWS[name] ? name : 'default';
+  camera.position.set(...view.position);
+  controls.target.set(...view.target);
+  controls.update();
+  constrainCameraRig();
+  canvas.dataset.cameraView = resolvedName;
+  canvas.dataset.cameraDistance = camera.position.distanceTo(controls.target).toFixed(2);
+  canvas.dataset.cameraHeight = camera.position.y.toFixed(2);
+  return {
+    name: resolvedName,
+    position: camera.position.toArray(),
+    target: controls.target.toArray(),
+    distance: camera.position.distanceTo(controls.target),
+  };
+}
+
+function constrainCameraRig() {
+  const clampedTargetX = clamp(controls.target.x, -160, 160);
+  const clampedTargetY = clamp(controls.target.y, 1, 90);
+  const clampedTargetZ = clamp(controls.target.z, -160, 160);
+  camera.position.x += clampedTargetX - controls.target.x;
+  camera.position.y += clampedTargetY - controls.target.y;
+  camera.position.z += clampedTargetZ - controls.target.z;
+  controls.target.set(clampedTargetX, clampedTargetY, clampedTargetZ);
+  camera.position.y = Math.max(0.35, camera.position.y);
+}
+
 function setupPointerInteraction() {
+  canvas.addEventListener('contextmenu', (event) => event.preventDefault());
   const toWorldPoint = (event, target) => {
     const rect = canvas.getBoundingClientRect();
     pointer.set(((event.clientX - rect.left) / rect.width) * 2 - 1, -((event.clientY - rect.top) / rect.height) * 2 + 1);
@@ -486,6 +624,11 @@ function createCubeCallbacks() {
       ui.elements.playshow.textContent = playing ? 'Ⅱ 일시정지' : '▶ 쇼 재생';
     },
     nextLayout: () => ui.nextLayout(),
+    getShowChoreographyName: () => {
+      const select = ui.elements.showchoreography;
+      return select.options[select.selectedIndex]?.textContent ?? state.show.choreographyPreset;
+    },
+    nextShowChoreography: () => ui.nextShowChoreography(),
     getCueCount: () => ui.cues.length,
     generateShow: () => ui.generateShow(),
     clear: () => { clearSimulation(); ui.toast('입자와 볼륨을 비웠습니다'); },
@@ -514,7 +657,7 @@ function createCubeCallbacks() {
       store.set('quality.shadows', value);
       ui.elements.shadowtoggle.checked = value;
       world.setShadows(value);
-      fluid.shadowMesh.visible = value;
+      fluid.setShadows(value);
     },
     nextQuality: () => {
       const next = qualities[(qualities.indexOf(state.quality.preset) + 1) % qualities.length];
@@ -569,6 +712,59 @@ function launchPreset(preset, layout = 'single', options = {}) {
   ui.toast(`${preset.name} · ${layout.toUpperCase()} ${count}발`);
 }
 
+function showCueLaunchOptions(cue) {
+  const choreography = cue.choreography ?? {};
+  return {
+    scale: clamp(0.72 + cue.energy * 0.35, 0.78, 1.28),
+    spread: 0.7 + clamp(choreography.positionSpread ?? state.show.positionSpread, 0, 1.5) * 0.45,
+    x: choreography.launchX ?? 0,
+    z: choreography.launchZ ?? 0,
+    yaw: choreography.launchYaw ?? 0,
+    launchPower: choreography.launchPower ?? 1,
+    explosionPower: choreography.explosionPower ?? 1,
+    sequenceDelay: choreography.sequenceDelay ?? 0,
+    crossLaunch: choreography.crossLaunch === true,
+    colorHue: choreography.colorHue ?? 0,
+    colorVariation: choreography.colorVariation ?? 0,
+  };
+}
+
+function launchShowCue(cue, manualPreview = false) {
+  if (!engine || !cue) return 0;
+  const preset = getPresetForCue(cue);
+  const options = showCueLaunchOptions(cue);
+  let count;
+  if (manualPreview) {
+    if (state.quality.predictiveLoad) particleLoadPlanner.scheduleLaunch(preset, cue.layout, engine.time, options);
+    count = engine.launchLayout(preset, cue.layout, options);
+    ui.toast(`${preset.name} · ${cue.choreography?.directionMode ?? 'music'} · ${count}발 미리보기`);
+  } else {
+    count = engine.launchLayout(preset, cue.layout, options);
+  }
+  lastShowCueLaunch = {
+    cueId: cue.id,
+    presetId: preset.id,
+    layout: cue.layout,
+    count,
+    directionMode: cue.choreography?.directionMode ?? 'music',
+    launchX: options.x,
+    launchYaw: options.yaw,
+    launchPower: options.launchPower,
+    explosionPower: options.explosionPower,
+    sequenceDelay: options.sequenceDelay,
+    crossLaunch: options.crossLaunch,
+    colorHue: options.colorHue,
+  };
+  canvas.dataset.showCue = String(cue.id ?? 'preview');
+  canvas.dataset.showDirection = String(lastShowCueLaunch.directionMode);
+  canvas.dataset.showLaunchCount = String(count);
+  canvas.dataset.showLaunchPower = String(options.launchPower);
+  canvas.dataset.showExplosionPower = String(options.explosionPower);
+  canvas.dataset.showCrossLaunch = String(options.crossLaunch);
+  canvas.dataset.showColorHue = String(options.colorHue);
+  return count;
+}
+
 function updateShow() {
   if (!audio.playing || !showCues.length) return;
   const current = audio.currentTime;
@@ -578,8 +774,7 @@ function updateShow() {
   }
   while (nextCueIndex < showCues.length && showCues[nextCueIndex].time <= current + 0.025) {
     const cue = showCues[nextCueIndex];
-    const preset = getPresetForCue(cue);
-    engine.launchLayout(preset, cue.layout, { scale: clamp(0.72 + cue.energy * 0.35, 0.78, 1.28), spread: 0.8 + state.show.variety * 0.45 });
+    launchShowCue(cue);
     nextCueIndex += 1;
   }
   lastShowTime = current;
@@ -608,15 +803,24 @@ function animate(now) {
   });
   engine.setLoadBudget(loadGuardState);
   if (loadGuardState.changed) handleLoadGuardTransition(previousGuardLevel, loadGuardState);
-  if (!renderer.xr.isPresenting) controls.update();
+  if (pendingRuntimeResolutionSync && engine.activeCount === 0) {
+    applyRuntimeResolution();
+    pendingRuntimeResolutionSync = false;
+  }
+  if (!renderer.xr.isPresenting) {
+    controls.update();
+    constrainCameraRig();
+  }
   updateShow();
   engine.update(dt);
   fluid.update(dt);
   world.update(dt);
   xrCube?.update(dt);
+  const immediateParticleLevel = particleLoadLevel(engine.activeCount / engine.maxParticles);
+  runtimePostProcessing = loadGuardState.postProcessing && immediateParticleLevel === 0;
 
   try {
-    if (usePostProcessing && loadGuardState.postProcessing && !renderer.xr.isPresenting && !renderFailedOver) renderPipeline.render();
+    if (usePostProcessing && runtimePostProcessing && !renderer.xr.isPresenting && !renderFailedOver) getActiveRenderPipeline().render();
     else renderer.render(scene, camera);
   } catch (error) {
     if (!renderFailedOver) {
@@ -634,8 +838,21 @@ function animate(now) {
   fpsFrames += 1;
   if (now - fpsWindowStart >= 750) {
     fpsAverage = fpsFrames / Math.max(0.001, fpsAccumulator);
-    ui.updateTelemetry({ fps: fpsAverage, particles: engine.activeCount, volume: `${fluid.nx}×${fluid.ny}×${fluid.nz}` });
-    ui.setPerformanceGuard(loadGuardState);
+    ui.updateTelemetry({
+      fps: fpsAverage,
+      particles: engine.activeCount,
+      rendered: engine.renderedCount,
+      motionVectors: engine.performanceDiagnostics.motionVectorParticles,
+      renderLimit: engine.renderLimit,
+      volume: `${fluid.nx}×${fluid.ny}×${fluid.nz}`,
+      volumePerformance: {
+        steps: fluid.material.steps,
+        shadowSteps: fluid.shadowMaterial.steps,
+        updateRate: fluid.updateRate,
+        slicesPerFrame: fluid.simulationSlicesPerFrame,
+      },
+    });
+    ui.setPerformanceGuard({ ...loadGuardState, postProcessing: runtimePostProcessing });
     adaptQuality(fpsAverage);
     fpsAccumulator = 0;
     fpsFrames = 0;
@@ -665,21 +882,26 @@ function qualitySettings(quality) {
   }[quality] ?? { pixelRatio: 1.35, reflection: 0.33 };
 }
 
-function applyRuntimeResolution() {
+function applyRuntimeResolution({ resizeTargets = true } = {}) {
   const settings = qualitySettings(activeQuality);
   const guardScale = loadGuardState?.resolutionScale ?? 1;
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, Math.max(0.62, settings.pixelRatio * guardScale)));
-  if (world?.reflectionNode) world.reflectionNode.resolutionScale = settings.reflection * Math.max(0.32, guardScale);
+  const reflectionScale = loadGuardState?.reflectionScale ?? 1;
+  if (resizeTargets) {
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, Math.max(0.62, settings.pixelRatio * guardScale)));
+    if (world?.reflectionNode) world.reflectionNode.resolutionScale = Math.max(0.08, settings.reflection * guardScale * reflectionScale);
+  }
   world?.setPerformanceLevel(loadGuardState?.level ?? 0);
   fluid?.setPerformanceLevel(loadGuardState?.level ?? 0);
-  resize();
+  if (resizeTargets) resize();
 }
 
 function handleLoadGuardTransition(previousLevel, next) {
-  applyRuntimeResolution();
+  const forecastLed = next.forecastLevel > 0 && next.forecastRatio > next.loadRatio + 0.05;
+  const safeToResize = forecastLed || engine.activeCount === 0;
+  applyRuntimeResolution({ resizeTargets: safeToResize });
+  pendingRuntimeResolutionSync = !safeToResize;
   ui.setPerformanceGuard(next);
   if (next.level > previousLevel && next.level >= 2) {
-    const forecastLed = next.forecastLevel > 0 && next.forecastRatio > next.loadRatio + 0.05;
     ui.toast(forecastLed
       ? `고부하 구간 ${loadForecastState?.peakIn?.toFixed?.(1) ?? 0}초 전 · 선제 최적화 활성`
       : next.level === 3
@@ -693,9 +915,9 @@ function handleLoadGuardTransition(previousLevel, next) {
 function applyQuality(quality) {
   if (!fluid || !world) return;
   activeQuality = quality;
+  fluid.setQuality(quality);
   applyRuntimeResolution();
   syncPostProcessing();
-  fluid.setQuality(quality);
   adaptiveLevel = quality === 'high' ? 0 : quality === 'medium' ? 1 : 2;
 }
 

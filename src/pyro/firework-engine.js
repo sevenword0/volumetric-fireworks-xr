@@ -1,11 +1,14 @@
 import * as THREE from 'three/webgpu';
-import { instancedBufferAttribute, shapeCircle } from 'three/tsl';
-import { createSplitDirections, generateBurstDirections, hashString, mulberry32 } from './patterns.js';
-import { LAUNCH_LAYOUTS } from './presets.js';
+import { instancedBufferAttribute, positionPrevious, shapeCircle, subBuild } from 'three/tsl';
+import { particleLoadLevel, particleLoadProfile } from '../core/particle-load-guard.js';
+import { BURST_DIRECTION_STRIDE, createSplitDirections, hashString, mulberry32, writeBurstDirections } from './patterns.js';
+import { FIREWORK_PRESETS, LAUNCH_LAYOUTS } from './presets.js';
 
 const PARTICLE = Object.freeze({ SHELL: 1, STAR: 2, EMBER: 3, CRACKLE: 4 });
 const UP = new THREE.Vector3(0, 1, 0);
+const ZERO = new THREE.Vector3();
 const WHITE = new THREE.Color(0xffffff);
+const PALETTE_CACHE = new WeakMap();
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
@@ -16,17 +19,31 @@ function finite(value, fallback) {
   return Number.isFinite(number) ? number : fallback;
 }
 
-function colorFromPalette(colors, t) {
-  const palette = colors.map((value) => new THREE.Color(value));
+function getPalette(colors) {
+  let palette = PALETTE_CACHE.get(colors);
+  if (!palette) {
+    palette = colors.length ? colors.map((value) => new THREE.Color(value)) : [WHITE];
+    PALETTE_CACHE.set(colors, palette);
+  }
+  return palette;
+}
+
+function writePaletteColor(target, colors, t, hueShift = 0) {
+  const palette = getPalette(colors);
   const scaled = clamp(t, 0, 0.9999) * (palette.length - 1);
   const index = Math.floor(scaled);
-  return palette[index].clone().lerp(palette[Math.min(index + 1, palette.length - 1)], scaled - index);
+  target.copy(palette[index]).lerp(palette[Math.min(index + 1, palette.length - 1)], scaled - index);
+  if (Math.abs(hueShift) > 0.0001) target.offsetHSL(hueShift, 0, 0);
+  return target;
 }
 
 function createParticle() {
   return {
     type: PARTICLE.STAR,
     position: new THREE.Vector3(),
+    previousX: 0,
+    previousY: 0,
+    previousZ: 0,
     velocity: new THREE.Vector3(),
     color: new THREE.Color(),
     colorNext: new THREE.Color(),
@@ -53,9 +70,26 @@ function createParticle() {
     fuse: Infinity,
     burstScale: 1,
     yaw: 0,
+    colorHue: 0,
+    colorVariation: 0,
     goGetter: 0,
     bounced: false,
   };
+}
+
+class MotionSpriteNodeMaterial extends THREE.SpriteNodeMaterial {
+  constructor(previousPositionNode) {
+    super();
+    this.previousPositionNode = previousPositionNode;
+  }
+
+  setupPosition(builder) {
+    const currentPosition = super.setupPosition(builder);
+    if (builder.needsPreviousData() && this.previousPositionNode) {
+      positionPrevious.assign(subBuild(this.previousPositionNode, 'POSITION_PREVIOUS', 'vec3'));
+    }
+    return currentPosition;
+  }
 }
 
 export class FireworkEngine extends EventTarget {
@@ -74,8 +108,23 @@ export class FireworkEngine extends EventTarget {
     this.random = mulberry32(0x51c0ffee);
     this._temp = new THREE.Vector3();
     this._temp2 = new THREE.Vector3();
+    this._spawnPosition = new THREE.Vector3();
+    this._inheritedVelocity = new THREE.Vector3();
+    this._eventColor = new THREE.Color();
     this._frame = 0;
     this._frameSpawnCount = 0;
+    this._frameTrailSpawnCount = 0;
+    this._renderedCount = 0;
+    this._effectiveRenderLimit = this.maxParticles;
+    this._renderScale = 1;
+    this._warmupActive = false;
+    this.directionBuffer = new Float64Array(this.maxParticles * BURST_DIRECTION_STRIDE);
+    this.pistilPresetCache = new WeakMap();
+    this.particleAllocations = 0;
+    this.poolHits = 0;
+    this.poolMisses = 0;
+    this.peakActiveCount = 0;
+    this.peakTrailSpawnsPerFrame = 0;
     this.globalBrightness = clamp(finite(state.quality?.fireworkBrightness, 1), 0.1, 3);
     this.loadBudget = {
       level: 0,
@@ -86,19 +135,25 @@ export class FireworkEngine extends EventTarget {
       trailScale: 1,
       smokeStride: 1,
       cullPerFrame: 0,
+      renderLimit: this.maxParticles,
+      particleScale: 1,
     };
 
     this.positionArray = new Float32Array(this.maxParticles * 3);
+    this.previousPositionArray = new Float32Array(this.maxParticles * 3);
     this.colorArray = new Float32Array(this.maxParticles * 3);
     this.scaleArray = new Float32Array(this.maxParticles);
     this.alphaArray = new Float32Array(this.maxParticles);
 
     this.positionAttribute = new THREE.InstancedBufferAttribute(this.positionArray, 3).setUsage(THREE.DynamicDrawUsage);
+    this.previousPositionAttribute = new THREE.InstancedBufferAttribute(this.previousPositionArray, 3).setUsage(THREE.DynamicDrawUsage);
     this.colorAttribute = new THREE.InstancedBufferAttribute(this.colorArray, 3).setUsage(THREE.DynamicDrawUsage);
     this.scaleAttribute = new THREE.InstancedBufferAttribute(this.scaleArray, 1).setUsage(THREE.DynamicDrawUsage);
     this.alphaAttribute = new THREE.InstancedBufferAttribute(this.alphaArray, 1).setUsage(THREE.DynamicDrawUsage);
+    this.dynamicAttributes = [this.positionAttribute, this.previousPositionAttribute, this.colorAttribute, this.scaleAttribute, this.alphaAttribute];
 
-    const material = new THREE.SpriteNodeMaterial();
+    this.particlePreviousPositionNode = instancedBufferAttribute(this.previousPositionAttribute);
+    const material = new MotionSpriteNodeMaterial(this.particlePreviousPositionNode);
     this.particleColorNode = instancedBufferAttribute(this.colorAttribute);
     this.particleOpacityNode = instancedBufferAttribute(this.alphaAttribute).mul(shapeCircle());
     material.positionNode = instancedBufferAttribute(this.positionAttribute);
@@ -119,6 +174,20 @@ export class FireworkEngine extends EventTarget {
     this.sprite.frustumCulled = false;
     this.sprite.renderOrder = 8;
     scene.add(this.sprite);
+
+    for (const preset of FIREWORK_PRESETS) getPalette(preset.colors);
+    this.prewarmPool(options.prewarmParticles ?? this.maxParticles);
+  }
+
+  allocateParticle() {
+    this.particleAllocations += 1;
+    return createParticle();
+  }
+
+  prewarmPool(target = this.maxParticles) {
+    const desired = clamp(Math.round(Number(target) || 0), 0, this.maxParticles);
+    while (this.pool.length + this.particles.length < desired) this.pool.push(this.allocateParticle());
+    return this.pool.length;
   }
 
   connectFluid(fluid) {
@@ -164,6 +233,8 @@ export class FireworkEngine extends EventTarget {
       trailScale: clamp(finite(budget.trailScale, 1), 0, 1),
       smokeStride: clamp(Math.round(Number(budget.smokeStride) || 1), 1, 12),
       cullPerFrame: clamp(Math.round(Number(budget.cullPerFrame) || 0), 0, this.maxParticles),
+      renderLimit: clamp(Math.round(Number(budget.renderLimit) || this.maxParticles), 1, this.maxParticles),
+      particleScale: clamp(finite(budget.particleScale, 1), 0.5, 1),
     };
   }
 
@@ -171,14 +242,23 @@ export class FireworkEngine extends EventTarget {
     const activeLimit = essential ? this.maxParticles : this.loadBudget.softLimit;
     if (this.particles.length >= activeLimit) return null;
     if (!essential && this._frameSpawnCount >= this.loadBudget.maxSpawnPerFrame) return null;
-    const particle = this.pool.pop() ?? createParticle();
+    let particle = this.pool.pop();
+    if (particle) this.poolHits += 1;
+    else {
+      this.poolMisses += 1;
+      particle = this.allocateParticle();
+    }
     particle.age = 0;
     particle.trailClock = 0;
     particle.splitDone = false;
     particle.bounced = false;
     particle.alpha = 1;
     particle.brightness = 1;
+    particle.previousX = Number.NaN;
+    particle.previousY = Number.NaN;
+    particle.previousZ = Number.NaN;
     this.particles.push(particle);
+    this.peakActiveCount = Math.max(this.peakActiveCount, this.particles.length);
     if (!essential) this._frameSpawnCount += 1;
     return particle;
   }
@@ -200,22 +280,47 @@ export class FireworkEngine extends EventTarget {
       y: options.y ?? 0.25,
       yaw: options.yaw ?? 0,
       scale: options.scale ?? 1,
+      launchPower: options.launchPower ?? 1,
+      explosionPower: options.explosionPower ?? 1,
+      colorHue: options.colorHue ?? 0,
+      colorVariation: options.colorVariation ?? 0,
     });
-    this.scheduled.sort((a, b) => a.at - b.at);
+    if (!options.deferSort) this.scheduled.sort((a, b) => a.at - b.at);
   }
 
   launchLayout(preset, layoutName = 'single', options = {}) {
     const layout = LAUNCH_LAYOUTS[layoutName] ?? LAUNCH_LAYOUTS.single;
-    for (const item of layout) {
-      this.schedule(preset, {
-        ...item,
-        delay: (options.delay ?? 0) + item.delay,
-        x: (options.x ?? 0) + item.x * (options.spread ?? 1),
-        z: (options.z ?? 0) + item.z * (options.spread ?? 1),
-        scale: (options.scale ?? 1) * (0.91 + this.random() * 0.18),
-      });
-    }
-    return layout.length;
+    const baseDelay = Math.max(0, finite(options.delay, 0));
+    const sequenceDelay = clamp(finite(options.sequenceDelay, 0), 0, 0.22);
+    const spread = clamp(finite(options.spread, 1), 0, 2.5);
+    const baseX = finite(options.x, 0);
+    const baseZ = finite(options.z, 0);
+    const baseYaw = finite(options.yaw, 0);
+    const passOffset = Math.max(0.04, sequenceDelay * layout.length + 0.04);
+    const schedulePass = (mirrored = false) => {
+      for (let index = 0; index < layout.length; index += 1) {
+        const item = layout[index];
+        const itemX = baseX + item.x * spread;
+        const itemYaw = baseYaw + item.yaw;
+        this.schedule(preset, {
+          y: options.y,
+          delay: baseDelay + item.delay + index * sequenceDelay + (mirrored ? passOffset : 0),
+          x: mirrored ? -itemX : itemX,
+          z: baseZ + item.z * spread,
+          yaw: mirrored ? -itemYaw : itemYaw,
+          scale: (options.scale ?? 1) * (0.91 + this.random() * 0.18),
+          launchPower: options.launchPower,
+          explosionPower: options.explosionPower,
+          colorHue: mirrored ? -(options.colorHue ?? 0) : options.colorHue,
+          colorVariation: options.colorVariation,
+          deferSort: true,
+        });
+      }
+    };
+    schedulePass(false);
+    if (options.crossLaunch) schedulePass(true);
+    this.scheduled.sort((a, b) => a.at - b.at);
+    return layout.length * (options.crossLaunch ? 2 : 1);
   }
 
   launchNow(preset, options = {}) {
@@ -224,35 +329,57 @@ export class FireworkEngine extends EventTarget {
     const y = options.y ?? 0.25;
     const scale = options.scale ?? 1;
     const yaw = options.yaw ?? 0;
+    const launchPower = clamp(finite(options.launchPower, 1), 0.5, 1.8);
+    const explosionPower = clamp(finite(options.explosionPower, 1), 0.5, 1.8);
+    const burstScale = clamp(scale * explosionPower, 0.35, 2.2);
+    const colorEffects = {
+      colorHue: clamp(finite(options.colorHue, 0), -0.5, 0.5),
+      colorVariation: clamp(finite(options.colorVariation, 0), 0, 1),
+    };
 
     if (['mine', 'cometFan', 'romanCandle'].includes(preset.pattern)) {
       if (preset.pattern === 'romanCandle') {
         const repeat = preset.repeat ?? 7;
         for (let index = 0; index < repeat; index += 1) {
-          this.scheduled.push({ at: this.time + index * 0.34, preset: { ...preset, pattern: 'cometFan', count: 1 }, x, y, z, yaw, scale });
+          this.scheduled.push({
+            at: this.time + index * 0.34,
+            preset: { ...preset, pattern: 'cometFan', count: 1 },
+            x,
+            y,
+            z,
+            yaw,
+            scale,
+            launchPower,
+            explosionPower,
+            ...colorEffects,
+          });
         }
+        this.scheduled.sort((a, b) => a.at - b.at);
         return;
       }
-      this.burst(preset, new THREE.Vector3(x, y, z), new THREE.Vector3(), scale, yaw);
+      this.burst(preset, this._spawnPosition.set(x, y, z), ZERO, burstScale, yaw, colorEffects);
       return;
     }
 
     if (preset.pattern === 'waterfall') {
-      this.burst(preset, new THREE.Vector3(x, y + 30 * scale, z), new THREE.Vector3(), scale, yaw);
+      this.burst(preset, this._spawnPosition.set(x, y + 30 * scale * launchPower, z), ZERO, burstScale, yaw, colorEffects);
       return;
     }
 
     const shell = this.acquire({ essential: true });
     if (!shell) return;
-    const paletteColor = colorFromPalette(preset.colors, 0.05);
     shell.type = PARTICLE.SHELL;
     shell.position.set(x, y, z);
-    shell.velocity.set(Math.sin(yaw) * 4.2, preset.launchVelocity * (0.92 + this.random() * 0.1) * Math.sqrt(scale), Math.cos(yaw) * 1.1);
-    shell.color.copy(paletteColor);
+    shell.velocity.set(
+      Math.sin(yaw) * 4.2 * launchPower,
+      preset.launchVelocity * (0.92 + this.random() * 0.1) * Math.sqrt(scale) * launchPower,
+      Math.cos(yaw) * 1.1 * launchPower,
+    );
+    writePaletteColor(shell.color, preset.colors, 0.05, colorEffects.colorHue);
     shell.colorNext.copy(WHITE);
     shell.age = 0;
-    shell.life = preset.fuse + 0.35;
     shell.fuse = preset.fuse * (0.94 + this.random() * 0.08) * Math.sqrt(scale);
+    shell.life = shell.fuse + 0.35;
     shell.size = 0.16 * scale;
     shell.drag = 0.015;
     shell.gravityScale = 1;
@@ -260,13 +387,17 @@ export class FireworkEngine extends EventTarget {
     shell.trailRate = 28;
     shell.smoke = preset.smoke * 0.75;
     shell.preset = preset;
-    shell.burstScale = scale;
+    shell.burstScale = burstScale;
     shell.yaw = yaw;
+    shell.colorHue = colorEffects.colorHue;
+    shell.colorVariation = colorEffects.colorVariation;
     shell.phase = this.random() * Math.PI * 2;
-    this.dispatchEvent(new CustomEvent('launch', { detail: { preset, position: shell.position.clone() } }));
+    this.dispatchEvent(new CustomEvent('launch', { detail: { preset, position: shell.position, launchPower, explosionPower, yaw } }));
   }
 
-  burst(preset, position, inheritedVelocity = new THREE.Vector3(), scale = 1, yaw = 0) {
+  burst(preset, position, inheritedVelocity = ZERO, scale = 1, yaw = 0, effects = {}) {
+    const colorHue = clamp(finite(effects.colorHue, 0), -0.5, 0.5);
+    const colorVariation = clamp(finite(effects.colorVariation, 0), 0, 1);
     const countScale = clamp(scale ** 0.55, 0.65, 1.35);
     const requestedCount = Math.max(1, Math.round(preset.count * countScale));
     const desiredCount = Math.max(1, Math.round(requestedCount * this.loadBudget.burstScale));
@@ -275,23 +406,34 @@ export class FireworkEngine extends EventTarget {
     const count = Math.min(desiredCount, activeRoom, frameRoom);
     const seed = hashString(`${preset.id}:${this.time.toFixed(3)}:${position.x.toFixed(2)}`);
     const palette = preset.colors;
-    const orientation = new THREE.Quaternion().setFromAxisAngle(UP, yaw);
-    const directions = count > 0 ? generateBurstDirections(preset, count, seed) : [];
+    if (count > 0) writeBurstDirections(preset, count, seed, this.directionBuffer);
+    const yawSin = Math.sin(yaw);
+    const yawCos = Math.cos(yaw);
 
-    for (let index = 0; index < directions.length; index += 1) {
-      const descriptor = directions[index];
+    for (let index = 0; index < count; index += 1) {
+      const offset = index * BURST_DIRECTION_STRIDE;
       const particle = this.acquire();
       if (!particle) break;
-      this._temp.set(descriptor.x, descriptor.y, descriptor.z).applyQuaternion(orientation);
-      const speed = preset.burstSpeed * descriptor.speedScale * scale;
+      const directionX = this.directionBuffer[offset];
+      const directionY = this.directionBuffer[offset + 1];
+      const directionZ = this.directionBuffer[offset + 2];
+      this._temp.set(
+        directionX * yawCos + directionZ * yawSin,
+        directionY,
+        -directionX * yawSin + directionZ * yawCos,
+      );
+      const speed = preset.burstSpeed * this.directionBuffer[offset + 3] * scale;
+      const colorT = this.directionBuffer[offset + 4];
+      const descriptorSeed = this.directionBuffer[offset + 7];
+      const particleHue = colorHue + (descriptorSeed - 0.5) * colorVariation * 0.28;
       particle.type = PARTICLE.STAR;
       particle.position.copy(position);
       particle.velocity.copy(this._temp).multiplyScalar(speed).addScaledVector(inheritedVelocity, 0.14);
-      particle.color.copy(colorFromPalette(palette, descriptor.colorT));
-      particle.colorNext.copy(colorFromPalette(palette, (descriptor.colorT + 0.42) % 1));
-      particle.age = -descriptor.delay;
-      particle.life = preset.life * (0.9 + descriptor.seed * 0.18) * Math.sqrt(scale);
-      particle.size = preset.size * scale * (0.78 + descriptor.seed * 0.48);
+      writePaletteColor(particle.color, palette, colorT, particleHue);
+      writePaletteColor(particle.colorNext, palette, (colorT + 0.42) % 1, particleHue + colorVariation * 0.08);
+      particle.age = -this.directionBuffer[offset + 5];
+      particle.life = preset.life * (0.9 + descriptorSeed * 0.18) * Math.sqrt(scale);
+      particle.size = preset.size * scale * (0.78 + descriptorSeed * 0.48);
       particle.drag = preset.drag;
       particle.gravityScale = preset.gravityScale;
       particle.trail = preset.trail;
@@ -301,63 +443,94 @@ export class FireworkEngine extends EventTarget {
       particle.crackle = preset.crackle;
       particle.split = preset.split;
       particle.splitAt = particle.life * preset.splitDelay;
-      particle.phase = descriptor.phase;
-      particle.seed = Math.floor(descriptor.seed * 1e9);
-      particle.colorShift = preset.colorShift;
+      particle.phase = this.directionBuffer[offset + 6];
+      particle.seed = Math.floor(descriptorSeed * 1e9);
+      particle.colorShift = preset.colorShift || colorVariation > 0.02;
       particle.goGetter = preset.vortexSeek ?? 0;
       particle.preset = preset;
       particle.fuse = Infinity;
       particle.burstScale = scale;
     }
 
-    this.spawnPistil(preset, position, scale, seed + 91);
+    this.spawnPistil(preset, position, scale, seed + 91, { colorHue, colorVariation });
     if (preset.multiBreak > 1) {
       for (let index = 1; index < preset.multiBreak; index += 1) {
         const angle = (index / preset.multiBreak) * Math.PI * 2 + this.random() * 0.4;
-        const subPosition = position.clone().add(new THREE.Vector3(Math.cos(angle) * index * 2.3, index * 1.2, Math.sin(angle) * index * 2.3));
-        this.scheduled.push({ at: this.time + index * 0.32, preset: { ...preset, multiBreak: 1, count: Math.round(preset.count * 0.72) }, x: subPosition.x, y: subPosition.y, z: subPosition.z, yaw: yaw + angle * 0.2, scale: scale * 0.8 });
+        this.scheduled.push({
+          at: this.time + index * 0.32,
+          preset: { ...preset, multiBreak: 1, count: Math.round(preset.count * 0.72) },
+          x: position.x + Math.cos(angle) * index * 2.3,
+          y: position.y + index * 1.2,
+          z: position.z + Math.sin(angle) * index * 2.3,
+          yaw: yaw + angle * 0.2,
+          scale: scale * 0.8,
+          launchPower: 1,
+          explosionPower: 1,
+          colorHue,
+          colorVariation,
+        });
       }
+      this.scheduled.sort((a, b) => a.at - b.at);
     }
 
-    const lightColor = colorFromPalette(palette, 0.25);
-    this.dispatchEvent(new CustomEvent('burst', { detail: { preset, position: position.clone(), color: lightColor, scale, count, requestedCount, brightness: this.globalBrightness } }));
+    const lightColor = writePaletteColor(this._eventColor, palette, 0.25, colorHue);
+    this.dispatchEvent(new CustomEvent('burst', { detail: { preset, position, color: lightColor, scale, count, requestedCount, brightness: this.globalBrightness, colorHue, colorVariation } }));
     this.fluid?.addEmitter(position, (2.2 * preset.smoke * scale) / this.loadBudget.smokeStride, 1.9 * scale * this.globalBrightness, lightColor, 2.2);
     return count;
   }
 
-  spawnPistil(preset, position, scale, seed) {
-    if (!preset.pistil || preset.pistil === 'none') return;
+  getPistilPresets(preset) {
+    let cached = this.pistilPresetCache.get(preset);
+    if (cached) return cached;
     const passes = preset.pistil === 'double' ? 2 : 1;
     const baseCount = preset.pistil === 'ring' ? 55 : 68;
-    for (let pass = 0; pass < passes; pass += 1) {
-      const corePreset = {
-        ...preset,
-        id: `${preset.id}-pistil-${pass}`,
-        pattern: preset.pistil === 'ring' ? 'ring' : 'peony',
-        count: baseCount,
-        burstSpeed: preset.burstSpeed * (0.32 + pass * 0.18),
-        life: preset.life * (0.58 + pass * 0.08),
-        trail: preset.pistil === 'crackle' ? 0.45 : 0.08,
-        crackle: preset.pistil === 'crackle' ? 0.8 : 0,
-        split: 0,
-        pistil: 'none',
-        colors: pass ? [preset.colors.at(-1)] : ['#ffffff', preset.colors[0]],
-      };
+    cached = Array.from({ length: passes }, (_, pass) => ({
+      ...preset,
+      id: `${preset.id}-pistil-${pass}`,
+      pattern: preset.pistil === 'ring' ? 'ring' : 'peony',
+      count: baseCount,
+      burstSpeed: preset.burstSpeed * (0.32 + pass * 0.18),
+      life: preset.life * (0.58 + pass * 0.08),
+      trail: preset.pistil === 'crackle' ? 0.45 : 0.08,
+      crackle: preset.pistil === 'crackle' ? 0.8 : 0,
+      split: 0,
+      pistil: 'none',
+      colors: pass ? [preset.colors.at(-1)] : ['#ffffff', preset.colors[0]],
+    }));
+    for (const corePreset of cached) getPalette(corePreset.colors);
+    this.pistilPresetCache.set(preset, cached);
+    return cached;
+  }
+
+  spawnPistil(preset, position, scale, seed, effects = {}) {
+    if (!preset.pistil || preset.pistil === 'none') return;
+    const colorHue = clamp(finite(effects.colorHue, 0), -0.5, 0.5);
+    const colorVariation = clamp(finite(effects.colorVariation, 0), 0, 1);
+    const corePresets = this.getPistilPresets(preset);
+    for (let pass = 0; pass < corePresets.length; pass += 1) {
+      const corePreset = corePresets[pass];
       const desiredCount = Math.max(1, Math.round(corePreset.count * this.loadBudget.burstScale));
       const activeRoom = Math.max(0, this.loadBudget.softLimit - this.particles.length);
       const frameRoom = Math.max(0, this.loadBudget.maxSpawnPerFrame - this._frameSpawnCount);
       const count = Math.min(desiredCount, activeRoom, frameRoom);
       if (count <= 0) return;
-      const directions = generateBurstDirections(corePreset, count, seed + pass * 17);
-      for (const descriptor of directions) {
+      writeBurstDirections(corePreset, count, seed + pass * 17, this.directionBuffer);
+      for (let index = 0; index < count; index += 1) {
+        const offset = index * BURST_DIRECTION_STRIDE;
         const particle = this.acquire();
         if (!particle) return;
         particle.type = PARTICLE.STAR;
         particle.position.copy(position);
-        particle.velocity.set(descriptor.x, descriptor.y, descriptor.z).multiplyScalar(corePreset.burstSpeed * descriptor.speedScale * scale);
-        particle.color.copy(colorFromPalette(corePreset.colors, descriptor.colorT));
-        particle.colorNext.copy(particle.color);
-        particle.life = corePreset.life * (0.9 + descriptor.seed * 0.18);
+        particle.velocity.set(
+          this.directionBuffer[offset],
+          this.directionBuffer[offset + 1],
+          this.directionBuffer[offset + 2],
+        ).multiplyScalar(corePreset.burstSpeed * this.directionBuffer[offset + 3] * scale);
+        const descriptorSeed = this.directionBuffer[offset + 7];
+        const particleHue = colorHue + (descriptorSeed - 0.5) * colorVariation * 0.2;
+        writePaletteColor(particle.color, corePreset.colors, this.directionBuffer[offset + 4], particleHue);
+        writePaletteColor(particle.colorNext, corePreset.colors, (this.directionBuffer[offset + 4] + 0.3) % 1, particleHue + colorVariation * 0.06);
+        particle.life = corePreset.life * (0.9 + this.directionBuffer[offset + 7] * 0.18);
         particle.size = preset.size * 0.7 * scale;
         particle.drag = preset.drag * 1.2;
         particle.gravityScale = preset.gravityScale;
@@ -368,9 +541,9 @@ export class FireworkEngine extends EventTarget {
         particle.crackle = corePreset.crackle;
         particle.split = 0;
         particle.splitAt = Infinity;
-        particle.phase = descriptor.phase;
-        particle.seed = Math.floor(descriptor.seed * 1e9);
-        particle.colorShift = false;
+        particle.phase = this.directionBuffer[offset + 6];
+        particle.seed = Math.floor(descriptorSeed * 1e9);
+        particle.colorShift = colorVariation > 0.02;
         particle.goGetter = 0;
         particle.preset = corePreset;
       }
@@ -378,9 +551,9 @@ export class FireworkEngine extends EventTarget {
   }
 
   spawnEmber(source, strength = 1) {
-    if (this.loadBudget.trailScale <= 0 || this.random() > this.loadBudget.trailScale) return;
+    if (this.loadBudget.trailScale <= 0 || this.random() > this.loadBudget.trailScale) return false;
     const ember = this.acquire();
-    if (!ember) return;
+    if (!ember) return false;
     ember.type = PARTICLE.EMBER;
     ember.position.copy(source.position).addScaledVector(source.velocity, -0.008);
     ember.velocity.copy(source.velocity).multiplyScalar(0.05).add(this._temp.set(this.random() - 0.5, this.random() - 0.5, this.random() - 0.5).multiplyScalar(0.7));
@@ -402,6 +575,8 @@ export class FireworkEngine extends EventTarget {
     ember.colorShift = source.colorShift;
     ember.goGetter = 0;
     ember.preset = source.preset;
+    this._frameTrailSpawnCount += 1;
+    return true;
   }
 
   splitParticle(source) {
@@ -535,12 +710,13 @@ export class FireworkEngine extends EventTarget {
     this.time += delta;
     this._frame += 1;
     this._frameSpawnCount = 0;
+    this._frameTrailSpawnCount = 0;
     this.shedTransientLoad();
 
     while (this.scheduled.length && this.scheduled[0].at <= this.time) {
       const item = this.scheduled.shift();
       if (['cometFan'].includes(item.preset.pattern) && item.preset.fuse === 0) {
-        this.burst(item.preset, new THREE.Vector3(item.x, item.y, item.z), new THREE.Vector3(), item.scale, item.yaw);
+        this.burst(item.preset, this._spawnPosition.set(item.x, item.y, item.z), ZERO, item.scale * item.explosionPower, item.yaw, item);
       } else {
         this.launchNow(item.preset, item);
       }
@@ -556,6 +732,9 @@ export class FireworkEngine extends EventTarget {
     let particleIndex = this.particles.length - 1;
     while (particleIndex >= 0) {
       const particle = this.particles[particleIndex];
+      particle.previousX = particle.position.x;
+      particle.previousY = particle.position.y;
+      particle.previousZ = particle.position.z;
       particle.age += delta;
       if (particle.age < 0) {
         particleIndex -= 1;
@@ -563,8 +742,8 @@ export class FireworkEngine extends EventTarget {
       }
 
       if (particle.type === PARTICLE.SHELL && particle.age >= particle.fuse) {
-        const inherited = particle.velocity.clone();
-        this.burst(particle.preset, particle.position.clone(), inherited, particle.burstScale, particle.yaw);
+        this._inheritedVelocity.copy(particle.velocity);
+        this.burst(particle.preset, particle.position, this._inheritedVelocity, particle.burstScale, particle.yaw, particle);
         this.releaseAt(particleIndex);
         particleIndex -= 1;
         continue;
@@ -645,43 +824,163 @@ export class FireworkEngine extends EventTarget {
       particleIndex -= 1;
     }
 
+    this.peakTrailSpawnsPerFrame = Math.max(this.peakTrailSpawnsPerFrame, this._frameTrailSpawnCount);
     this.updateAttributes();
   }
 
-  updateAttributes() {
-    const count = Math.min(this.particles.length, this.maxParticles);
-    for (let index = 0; index < count; index += 1) {
-      const particle = this.particles[index];
-      const positionOffset = index * 3;
-      this.positionArray[positionOffset] = particle.position.x;
-      this.positionArray[positionOffset + 1] = particle.position.y;
-      this.positionArray[positionOffset + 2] = particle.position.z;
+  isRenderableParticle(particle) {
+    return particle.age >= 0 && particle.age < particle.life;
+  }
 
-      const lifeT = clamp(particle.age / particle.life, 0, 1);
-      const fadeIn = Math.min(1, lifeT * 18);
-      const fadeOut = (1 - lifeT) ** (particle.type === PARTICLE.EMBER ? 1.6 : 0.56);
-      let flicker = 1;
-      if (particle.strobe > 0) {
-        const pulse = Math.sin(this.time * (18 + particle.strobe * 28) + particle.phase * 7);
-        flicker = (1 - particle.strobe * 0.72) + (pulse > 0.24 ? particle.strobe : particle.strobe * 0.08);
+  writeParticleAttributes(particle, renderIndex) {
+    const positionOffset = renderIndex * 3;
+    this.positionArray[positionOffset] = particle.position.x;
+    this.positionArray[positionOffset + 1] = particle.position.y;
+    this.positionArray[positionOffset + 2] = particle.position.z;
+    this.previousPositionArray[positionOffset] = Number.isFinite(particle.previousX) ? particle.previousX : particle.position.x;
+    this.previousPositionArray[positionOffset + 1] = Number.isFinite(particle.previousY) ? particle.previousY : particle.position.y;
+    this.previousPositionArray[positionOffset + 2] = Number.isFinite(particle.previousZ) ? particle.previousZ : particle.position.z;
+
+    const lifeT = clamp(particle.age / particle.life, 0, 1);
+    const fadeIn = Math.min(1, lifeT * 18);
+    const fadeOut = (1 - lifeT) ** (particle.type === PARTICLE.EMBER ? 1.6 : 0.56);
+    let flicker = 1;
+    if (particle.strobe > 0) {
+      const pulse = Math.sin(this.time * (18 + particle.strobe * 28) + particle.phase * 7);
+      flicker = (1 - particle.strobe * 0.72) + (pulse > 0.24 ? particle.strobe : particle.strobe * 0.08);
+    }
+    if (particle.type === PARTICLE.CRACKLE) flicker *= 1.3 + Math.sin(this.time * 71 + particle.phase * 13.7) * 0.4;
+    const colorMix = particle.colorShift ? clamp((lifeT - 0.34) / 0.45, 0, 1) : 0;
+    const intensity = (particle.type === PARTICLE.SHELL ? 2.8 : particle.type === PARTICLE.CRACKLE ? 4.2 : 2.35) * flicker * this.globalBrightness;
+    this.colorArray[positionOffset] = (particle.color.r + (particle.colorNext.r - particle.color.r) * colorMix) * intensity;
+    this.colorArray[positionOffset + 1] = (particle.color.g + (particle.colorNext.g - particle.color.g) * colorMix) * intensity;
+    this.colorArray[positionOffset + 2] = (particle.color.b + (particle.colorNext.b - particle.color.b) * colorMix) * intensity;
+    this.scaleArray[renderIndex] = particle.size * (particle.type === PARTICLE.SHELL ? 2 : 1) * (0.85 + flicker * 0.2) * this._renderScale;
+    this.alphaArray[renderIndex] = clamp(fadeIn * fadeOut * flicker, 0, 1.35);
+  }
+
+  updateAttributes() {
+    const immediateLevel = particleLoadLevel(this.particles.length / this.maxParticles);
+    const immediateProfile = particleLoadProfile(immediateLevel);
+    const immediateSoftLimit = Math.max(1, Math.floor(this.maxParticles * immediateProfile.softLimitRatio));
+    const immediateRenderLimit = Math.max(1, Math.floor(immediateSoftLimit * immediateProfile.renderRatio));
+    const renderLimit = Math.min(this.loadBudget.renderLimit, immediateRenderLimit, this.maxParticles);
+    this._effectiveRenderLimit = renderLimit;
+    this._renderScale = Math.min(this.loadBudget.particleScale, immediateProfile.particleScale);
+    let count = 0;
+
+    if (this.particles.length <= renderLimit) {
+      for (const particle of this.particles) {
+        if (!this.isRenderableParticle(particle)) continue;
+        this.writeParticleAttributes(particle, count);
+        count += 1;
       }
-      if (particle.type === PARTICLE.CRACKLE) flicker *= 0.9 + this.random() * 0.8;
-      const colorMix = particle.colorShift ? clamp((lifeT - 0.34) / 0.45, 0, 1) : 0;
-      this._temp.set(particle.color.r, particle.color.g, particle.color.b).lerp(this._temp2.set(particle.colorNext.r, particle.colorNext.g, particle.colorNext.b), colorMix);
-      const intensity = (particle.type === PARTICLE.SHELL ? 2.8 : particle.type === PARTICLE.CRACKLE ? 4.2 : 2.35) * flicker * this.globalBrightness;
-      this.colorArray[positionOffset] = this._temp.x * intensity;
-      this.colorArray[positionOffset + 1] = this._temp.y * intensity;
-      this.colorArray[positionOffset + 2] = this._temp.z * intensity;
-      this.scaleArray[index] = particle.size * (particle.type === PARTICLE.SHELL ? 2 : 1) * (0.85 + flicker * 0.2);
-      this.alphaArray[index] = clamp(fadeIn * fadeOut * flicker, 0, 1.35);
+    } else {
+      let shellCount = 0;
+      let starCount = 0;
+      let secondaryCount = 0;
+      for (const particle of this.particles) {
+        if (!this.isRenderableParticle(particle)) continue;
+        if (particle.type === PARTICLE.SHELL) shellCount += 1;
+        else if (particle.type === PARTICLE.STAR) starCount += 1;
+        else secondaryCount += 1;
+      }
+      const shellLimit = Math.min(shellCount, renderLimit);
+      const starLimit = Math.min(starCount, renderLimit - shellLimit);
+      const secondaryLimit = Math.min(secondaryCount, renderLimit - shellLimit - starLimit);
+      const starOffset = shellLimit;
+      const secondaryOffset = shellLimit + starLimit;
+      let shellSeen = 0;
+      let starSeen = 0;
+      let secondarySeen = 0;
+      let shellWritten = 0;
+      let starWritten = 0;
+      let secondaryWritten = 0;
+
+      for (const particle of this.particles) {
+        if (!this.isRenderableParticle(particle)) continue;
+        let total;
+        let limit;
+        let seen;
+        let written;
+        let outputOffset;
+        if (particle.type === PARTICLE.SHELL) {
+          total = shellCount;
+          limit = shellLimit;
+          seen = shellSeen;
+          written = shellWritten;
+          outputOffset = 0;
+          shellSeen += 1;
+        } else if (particle.type === PARTICLE.STAR) {
+          total = starCount;
+          limit = starLimit;
+          seen = starSeen;
+          written = starWritten;
+          outputOffset = starOffset;
+          starSeen += 1;
+        } else {
+          total = secondaryCount;
+          limit = secondaryLimit;
+          seen = secondarySeen;
+          written = secondaryWritten;
+          outputOffset = secondaryOffset;
+          secondarySeen += 1;
+        }
+        if (written >= limit || limit <= 0) continue;
+        const shouldWrite = total <= limit
+          || Math.floor(((seen + 1) * limit) / total) > Math.floor((seen * limit) / total);
+        if (!shouldWrite) continue;
+        this.writeParticleAttributes(particle, outputOffset + written);
+        if (particle.type === PARTICLE.SHELL) shellWritten += 1;
+        else if (particle.type === PARTICLE.STAR) starWritten += 1;
+        else secondaryWritten += 1;
+      }
+      count = shellWritten + starWritten + secondaryWritten;
     }
 
     this.sprite.count = count;
-    for (const attribute of [this.positionAttribute, this.colorAttribute, this.scaleAttribute, this.alphaAttribute]) {
+    this._renderedCount = count;
+    for (const attribute of this.dynamicAttributes) {
       attribute.clearUpdateRanges();
       attribute.addUpdateRange(0, count * attribute.itemSize);
       attribute.needsUpdate = true;
     }
+  }
+
+  prepareRenderWarmup() {
+    if (this._warmupActive || this.particles.length > 0) return false;
+    this.positionArray.set([0, 20, 0], 0);
+    this.previousPositionArray.set([0, 20, 0], 0);
+    this.colorArray.set([1, 1, 1], 0);
+    this.scaleArray[0] = 0.01;
+    this.alphaArray[0] = 0;
+    for (const attribute of this.dynamicAttributes) {
+      attribute.clearUpdateRanges();
+      attribute.addUpdateRange(0, attribute.itemSize);
+      attribute.needsUpdate = true;
+    }
+    this.sprite.count = 1;
+    this._warmupActive = true;
+    return true;
+  }
+
+  finishRenderWarmup() {
+    if (!this._warmupActive) return;
+    this.sprite.count = 0;
+    this._warmupActive = false;
+  }
+
+  get performanceDiagnostics() {
+    return {
+      allocatedParticles: this.particleAllocations,
+      pooledParticles: this.pool.length,
+      poolHits: this.poolHits,
+      poolMisses: this.poolMisses,
+      peakActiveParticles: this.peakActiveCount,
+      peakTrailSpawnsPerFrame: this.peakTrailSpawnsPerFrame,
+      frameTrailSpawns: this._frameTrailSpawnCount,
+      motionVectorParticles: this._renderedCount,
+    };
   }
 
   clear() {
@@ -689,10 +988,20 @@ export class FireworkEngine extends EventTarget {
     this.scheduled.length = 0;
     this.interactions.length = 0;
     this.sprite.count = 0;
+    this._renderedCount = 0;
+    this._warmupActive = false;
   }
 
   get activeCount() {
     return this.particles.length;
+  }
+
+  get renderedCount() {
+    return this._renderedCount;
+  }
+
+  get renderLimit() {
+    return this._effectiveRenderLimit;
   }
 
   dispose() {
@@ -700,6 +1009,7 @@ export class FireworkEngine extends EventTarget {
     this.scene.remove(this.sprite);
     this.sprite.material.dispose();
     this.positionAttribute.array = null;
+    this.previousPositionAttribute.array = null;
     this.colorAttribute.array = null;
     this.scaleAttribute.array = null;
     this.alphaAttribute.array = null;

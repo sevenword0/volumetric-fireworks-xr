@@ -17,6 +17,7 @@ import {
   vec3,
   vec4,
 } from 'three/tsl';
+import { RENDER_LAYERS } from '../core/render-layers.js';
 
 const DEFAULT_GRID = Object.freeze({ x: 32, y: 24, z: 32 });
 const DEFAULT_SIZE = Object.freeze({ x: 58, y: 42, z: 46 });
@@ -52,11 +53,24 @@ export class FluidVolume {
     this.textureData = new Uint8Array(this.cellCount * 4);
     this.emitters = [];
     this.impulses = [];
+    this.emitterPool = [];
+    this.impulsePool = [];
+    this.emitterAllocations = 0;
+    this.impulseAllocations = 0;
+    this._gridPosition = { x: 0, y: 0, z: 0 };
+    this._normalizedDirection = new THREE.Vector3();
     this.accumulator = 0;
     this.time = 0;
     this.baseUpdateRate = 12;
+    this.baseSteps = 14;
+    this.baseShadowSteps = 4;
     this.performanceLevel = 0;
     this.updateRate = this.baseUpdateRate;
+    this.simulationSlicesPerFrame = 8;
+    this.simulationJob = null;
+    this.simulationCursorZ = 0;
+    this.lastSimulationSlices = 0;
+    this.completedSteps = 0;
     this.enabled = true;
 
     this.texture = new THREE.Data3DTexture(this.textureData, this.nx, this.ny, this.nz);
@@ -93,7 +107,7 @@ export class FluidVolume {
 
     const material = new THREE.VolumeNodeMaterial();
     material.name = 'Raymarched smoke and fire';
-    material.steps = 18;
+    material.steps = this.baseSteps;
     material.transparent = true;
     material.depthWrite = false;
     material.blending = THREE.NormalBlending;
@@ -120,17 +134,18 @@ export class FluidVolume {
     scene.add(this.mesh);
 
     const maxDistance = this.size.length();
+    const shadowTraceSteps = 4;
     const shadowMaterial = new THREE.VolumeNodeMaterial();
     shadowMaterial.name = 'Volume shadow raymarch';
-    shadowMaterial.steps = 8;
+    shadowMaterial.steps = this.baseShadowSteps;
     shadowMaterial.offsetNode = material.offsetNode;
     shadowMaterial.castShadowNode = Fn(() => {
       const startPosition = positionWorld;
       const rayDirection = positionWorld.sub(cameraPosition).normalize().toVar();
       const distanceTravelled = float(0).toVar();
       const transmittance = float(1).toVar();
-      const stepSize = float(maxDistance / 8);
-      Loop(8, () => {
+      const stepSize = float(maxDistance / shadowTraceSteps);
+      Loop(shadowTraceSteps, () => {
         const rayPosition = startPosition.add(rayDirection.mul(distanceTravelled));
         const { density } = getSample({ positionRay: rayPosition });
         const falloff = density.mul(this.shadowUniform).mul(0.035).negate().mul(stepSize).exp();
@@ -156,6 +171,10 @@ export class FluidVolume {
     this.shadowMesh.position.copy(this.center);
     this.shadowMesh.castShadow = true;
     this.shadowMesh.frustumCulled = false;
+    // This mesh exists only for light shadow passes. Keeping it off the default
+    // camera layer prevents an invisible second volume raymarch in the main and
+    // water-reflection renders.
+    this.shadowMesh.layers.set(RENDER_LAYERS.VOLUME_SHADOW);
     scene.add(this.shadowMesh);
   }
 
@@ -163,12 +182,11 @@ export class FluidVolume {
     return x + y * this.nx + z * this.nx * this.ny;
   }
 
-  worldToGrid(position) {
-    return {
-      x: ((position.x - this.center.x) / this.size.x + 0.5) * (this.nx - 1),
-      y: ((position.y - this.center.y) / this.size.y + 0.5) * (this.ny - 1),
-      z: ((position.z - this.center.z) / this.size.z + 0.5) * (this.nz - 1),
-    };
+  worldToGrid(position, target = this._gridPosition) {
+    target.x = ((position.x - this.center.x) / this.size.x + 0.5) * (this.nx - 1);
+    target.y = ((position.y - this.center.y) / this.size.y + 0.5) * (this.ny - 1);
+    target.z = ((position.z - this.center.z) / this.size.z + 0.5) * (this.nz - 1);
+    return target;
   }
 
   sample(field, x, y, z) {
@@ -192,25 +210,34 @@ export class FluidVolume {
   }
 
   addEmitter(position, density, temperature, color = null, radius = 1) {
-    if (!this.enabled || this.emitters.length > 120) return;
-    this.emitters.push({
-      position: position.clone(),
-      density: Math.max(0, density),
-      temperature: Math.max(0, temperature),
-      color: color?.clone?.() ?? null,
-      radius: Math.max(0.2, radius),
-    });
+    if (!this.enabled || this.emitters.length >= 120) return false;
+    let emitter = this.emitterPool.pop();
+    if (!emitter) {
+      emitter = { position: new THREE.Vector3(), density: 0, temperature: 0, radius: 1 };
+      this.emitterAllocations += 1;
+    }
+    emitter.position.copy(position);
+    emitter.density = Math.max(0, density);
+    emitter.temperature = Math.max(0, temperature);
+    emitter.radius = Math.max(0.2, radius);
+    this.emitters.push(emitter);
+    return true;
   }
 
   addImpulse(position, direction, options = {}) {
-    if (!this.enabled || this.impulses.length > 24) return;
-    this.impulses.push({
-      position: position.clone(),
-      direction: direction.clone(),
-      radius: options.radius ?? 7,
-      strength: options.strength ?? 18,
-      type: options.type ?? 'gust',
-    });
+    if (!this.enabled || this.impulses.length >= 24) return false;
+    let impulse = this.impulsePool.pop();
+    if (!impulse) {
+      impulse = { position: new THREE.Vector3(), direction: new THREE.Vector3(), radius: 7, strength: 18, type: 'gust' };
+      this.impulseAllocations += 1;
+    }
+    impulse.position.copy(position);
+    impulse.direction.copy(direction);
+    impulse.radius = options.radius ?? 7;
+    impulse.strength = options.strength ?? 18;
+    impulse.type = options.type ?? 'gust';
+    this.impulses.push(impulse);
+    return true;
   }
 
   injectQueuedFields(dt) {
@@ -244,7 +271,7 @@ export class FluidVolume {
     for (const impulse of this.impulses) {
       const grid = this.worldToGrid(impulse.position);
       const radiusCells = Math.ceil(impulse.radius / Math.min(cellX, cellY, cellZ));
-      const normalizedDirection = impulse.direction.clone().normalize();
+      const normalizedDirection = this._normalizedDirection.copy(impulse.direction).normalize();
       for (let z = Math.max(0, Math.floor(grid.z - radiusCells)); z <= Math.min(this.nz - 1, Math.ceil(grid.z + radiusCells)); z += 1) {
         for (let y = Math.max(0, Math.floor(grid.y - radiusCells)); y <= Math.min(this.ny - 1, Math.ceil(grid.y + radiusCells)); y += 1) {
           for (let x = Math.max(0, Math.floor(grid.x - radiusCells)); x <= Math.min(this.nx - 1, Math.ceil(grid.x + radiusCells)); x += 1) {
@@ -275,48 +302,70 @@ export class FluidVolume {
       }
     }
 
-    this.emitters.length = 0;
-    this.impulses.length = 0;
+    while (this.emitters.length) this.emitterPool.push(this.emitters.pop());
+    while (this.impulses.length) this.impulsePool.push(this.impulses.pop());
   }
 
-  simulate(dt) {
-    this.time += dt;
-    this.injectQueuedFields(dt);
+  beginSimulation(dt) {
+    if (this.simulationJob) return false;
+    const safeDt = Math.max(0.0001, Number(dt) || 1 / this.updateRate);
+    this.time += safeDt;
+    this.injectQueuedFields(safeDt);
     const cellX = this.size.x / (this.nx - 1);
     const cellY = this.size.y / (this.ny - 1);
     const cellZ = this.size.z / (this.nz - 1);
     const physics = this.state.physics;
     const volume = this.state.volume;
-    const densityDecay = Math.exp(-dt * 0.24);
-    const temperatureDecay = Math.exp(-dt * 1.15);
-    const velocityDecay = Math.exp(-dt * 0.42);
+    this.simulationJob = {
+      dt: safeDt,
+      cellX,
+      cellY,
+      cellZ,
+      densityDecay: Math.exp(-safeDt * 0.24),
+      temperatureDecay: Math.exp(-safeDt * 1.15),
+      velocityDecay: Math.exp(-safeDt * 0.42),
+      windX: physics.windX,
+      windZ: physics.windZ,
+      vortex: physics.vortex,
+      buoyancy: volume.buoyancy,
+    };
+    this.simulationCursorZ = 0;
+    return true;
+  }
 
-    for (let z = 0; z < this.nz; z += 1) {
+  processSimulationSlices(maxSlices = this.nz) {
+    if (!this.simulationJob) return 0;
+    const job = this.simulationJob;
+    const startZ = this.simulationCursorZ;
+    const sliceCount = clamp(Math.round(Number(maxSlices) || 1), 1, this.nz);
+    const endZ = Math.min(this.nz, startZ + sliceCount);
+
+    for (let z = startZ; z < endZ; z += 1) {
       for (let y = 0; y < this.ny; y += 1) {
         for (let x = 0; x < this.nx; x += 1) {
           const index = this.index(x, y, z);
           const vx = this.velocityX[index];
           const vy = this.velocityY[index];
           const vz = this.velocityZ[index];
-          const backX = x - (vx * dt) / cellX;
-          const backY = y - (vy * dt) / cellY;
-          const backZ = z - (vz * dt) / cellZ;
-          const density = this.sample(this.density, backX, backY, backZ) * densityDecay;
-          const temperature = this.sample(this.temperature, backX, backY, backZ) * temperatureDecay;
-          const advectedX = this.sample(this.velocityX, backX, backY, backZ) * velocityDecay;
-          const advectedY = this.sample(this.velocityY, backX, backY, backZ) * velocityDecay;
-          const advectedZ = this.sample(this.velocityZ, backX, backY, backZ) * velocityDecay;
+          const backX = x - (vx * job.dt) / job.cellX;
+          const backY = y - (vy * job.dt) / job.cellY;
+          const backZ = z - (vz * job.dt) / job.cellZ;
+          const density = this.sample(this.density, backX, backY, backZ) * job.densityDecay;
+          const temperature = this.sample(this.temperature, backX, backY, backZ) * job.temperatureDecay;
+          const advectedX = this.sample(this.velocityX, backX, backY, backZ) * job.velocityDecay;
+          const advectedY = this.sample(this.velocityY, backX, backY, backZ) * job.velocityDecay;
+          const advectedZ = this.sample(this.velocityZ, backX, backY, backZ) * job.velocityDecay;
           const px = x / this.nx;
           const py = y / this.ny;
           const pz = z / this.nz;
           const curlX = Math.sin(py * 13.1 + this.time * 0.71) * Math.cos(pz * 9.3 - this.time * 0.43);
           const curlZ = Math.cos(px * 11.7 - this.time * 0.62) * Math.sin(py * 8.9 + this.time * 0.37);
-          const turbulence = physics.vortex * (0.05 + density * 0.18);
+          const turbulence = job.vortex * (0.05 + density * 0.18);
           this.nextDensity[index] = density;
           this.nextTemperature[index] = temperature;
-          this.nextVelocityX[index] = advectedX + (physics.windX - advectedX) * dt * 0.14 + curlX * turbulence;
-          this.nextVelocityY[index] = advectedY + (temperature * volume.buoyancy - density * 0.08) * dt * 2.2;
-          this.nextVelocityZ[index] = advectedZ + (physics.windZ - advectedZ) * dt * 0.14 + curlZ * turbulence;
+          this.nextVelocityX[index] = advectedX + (job.windX - advectedX) * job.dt * 0.14 + curlX * turbulence;
+          this.nextVelocityY[index] = advectedY + (temperature * job.buoyancy - density * 0.08) * job.dt * 2.2;
+          this.nextVelocityZ[index] = advectedZ + (job.windZ - advectedZ) * job.dt * 0.14 + curlZ * turbulence;
 
           if (x === 0 || x === this.nx - 1 || y === 0 || y === this.ny - 1 || z === 0 || z === this.nz - 1) {
             this.nextDensity[index] *= 0.72;
@@ -329,12 +378,28 @@ export class FluidVolume {
       }
     }
 
+    this.simulationCursorZ = endZ;
+    this.lastSimulationSlices = endZ - startZ;
+    if (endZ >= this.nz) this.finishSimulation();
+    return this.lastSimulationSlices;
+  }
+
+  finishSimulation() {
     [this.density, this.nextDensity] = [this.nextDensity, this.density];
     [this.temperature, this.nextTemperature] = [this.nextTemperature, this.temperature];
     [this.velocityX, this.nextVelocityX] = [this.nextVelocityX, this.velocityX];
     [this.velocityY, this.nextVelocityY] = [this.nextVelocityY, this.velocityY];
     [this.velocityZ, this.nextVelocityZ] = [this.nextVelocityZ, this.velocityZ];
+    this.simulationJob = null;
+    this.simulationCursorZ = 0;
+    this.completedSteps += 1;
     this.uploadTexture();
+  }
+
+  simulate(dt) {
+    if (this.simulationJob) this.processSimulationSlices(this.nz);
+    this.beginSimulation(dt);
+    this.processSimulationSlices(this.nz);
   }
 
   uploadTexture() {
@@ -358,46 +423,86 @@ export class FluidVolume {
     if (!this.enabled) return;
     this.accumulator += Math.min(0.05, dt);
     const step = 1 / this.updateRate;
-    let iterations = 0;
-    while (this.accumulator >= step && iterations < 2) {
-      this.simulate(step);
+    this.accumulator = Math.min(this.accumulator, step * 2);
+    if (!this.simulationJob && this.accumulator >= step) {
+      this.beginSimulation(step);
       this.accumulator -= step;
-      iterations += 1;
     }
+    if (this.simulationJob) this.processSimulationSlices(this.simulationSlicesPerFrame);
   }
 
   setQuality(quality) {
     const table = {
-      high: { steps: 24, shadowSteps: 10, rate: 14 },
-      medium: { steps: 18, shadowSteps: 8, rate: 12 },
-      low: { steps: 10, shadowSteps: 5, rate: 8 },
+      high: { steps: 16, shadowSteps: 4, rate: 14 },
+      medium: { steps: 14, shadowSteps: 4, rate: 12 },
+      low: { steps: 10, shadowSteps: 3, rate: 8 },
     };
     const selected = table[quality] ?? table.medium;
-    this.material.steps = selected.steps;
-    this.shadowMaterial.steps = selected.shadowSteps;
+    this.baseSteps = selected.steps;
+    this.baseShadowSteps = selected.shadowSteps;
     this.baseUpdateRate = selected.rate;
+    if (this.material.steps !== this.baseSteps) {
+      this.material.steps = this.baseSteps;
+      this.material.needsUpdate = true;
+    }
+    if (this.shadowMaterial.steps !== this.baseShadowSteps) {
+      this.shadowMaterial.steps = this.baseShadowSteps;
+      this.shadowMaterial.needsUpdate = true;
+    }
     this.setPerformanceLevel(this.performanceLevel);
-    this.material.needsUpdate = true;
-    this.shadowMaterial.needsUpdate = true;
   }
 
   setPerformanceLevel(level = 0) {
     this.performanceLevel = clamp(Math.round(Number(level) || 0), 0, 3);
     const rateScale = [1, 0.84, 0.62, 0.42][this.performanceLevel];
     this.updateRate = Math.max(3, Math.round(this.baseUpdateRate * rateScale));
+    const targetFrames = Math.max(2, Math.floor(60 / this.updateRate) - 1);
+    this.simulationSlicesPerFrame = Math.max(1, Math.ceil(this.nz / targetFrames));
+    this.syncVisibility();
+  }
+
+  syncVisibility() {
+    this.mesh.visible = this.enabled;
+    this.shadowMesh.visible = this.enabled && this.state.quality?.shadows !== false && this.performanceLevel === 0;
+  }
+
+  setShadows(enabled) {
+    this.shadowMesh.visible = this.enabled && Boolean(enabled) && this.performanceLevel === 0;
   }
 
   setVisible(visible) {
-    this.mesh.visible = visible;
-    this.shadowMesh.visible = visible && this.state.quality.shadows;
-    this.enabled = visible;
+    this.enabled = Boolean(visible);
+    this.syncVisibility();
   }
 
   clear() {
-    for (const field of [this.density, this.temperature, this.velocityX, this.velocityY, this.velocityZ]) field.fill(0);
-    this.emitters.length = 0;
-    this.impulses.length = 0;
+    while (this.emitters.length) this.emitterPool.push(this.emitters.pop());
+    while (this.impulses.length) this.impulsePool.push(this.impulses.pop());
+    for (const field of [
+      this.density, this.temperature, this.velocityX, this.velocityY, this.velocityZ,
+      this.nextDensity, this.nextTemperature, this.nextVelocityX, this.nextVelocityY, this.nextVelocityZ,
+    ]) field.fill(0);
+    this.accumulator = 0;
+    this.simulationJob = null;
+    this.simulationCursorZ = 0;
+    this.lastSimulationSlices = 0;
     this.uploadTexture();
+  }
+
+  get simulationProgress() {
+    return this.simulationJob ? this.simulationCursorZ / this.nz : 1;
+  }
+
+  get performanceDiagnostics() {
+    return {
+      emitterAllocations: this.emitterAllocations,
+      emitterPoolSize: this.emitterPool.length,
+      queuedEmitters: this.emitters.length,
+      impulseAllocations: this.impulseAllocations,
+      impulsePoolSize: this.impulsePool.length,
+      queuedImpulses: this.impulses.length,
+      completedSteps: this.completedSteps,
+    };
   }
 
   dispose() {

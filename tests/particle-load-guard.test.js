@@ -1,6 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ParticleLoadGuard, particleLoadProfile } from '../src/core/particle-load-guard.js';
+import { ParticleLoadGuard, particleLoadLevel, particleLoadProfile } from '../src/core/particle-load-guard.js';
+
+test('particle thresholds engage before the measured render saturation point', () => {
+  assert.equal(particleLoadLevel(0.279), 0);
+  assert.equal(particleLoadLevel(0.28), 1);
+  assert.equal(particleLoadLevel(0.46), 2);
+  assert.equal(particleLoadLevel(0.62), 3);
+});
 
 test('normal frame pacing keeps the full particle effect budget', () => {
   const guard = new ParticleLoadGuard();
@@ -9,6 +16,8 @@ test('normal frame pacing keeps the full particle effect budget', () => {
   assert.equal(state.burstScale, 1);
   assert.equal(state.trailScale, 1);
   assert.equal(state.postProcessing, true);
+  assert.equal(state.renderLimit, state.softLimit);
+  assert.equal(state.particleScale, 1);
 });
 
 test('a sudden particle spike engages emergency protection immediately', () => {
@@ -17,7 +26,10 @@ test('a sudden particle spike engages emergency protection immediately', () => {
   assert.equal(state.level, 3);
   assert.equal(state.changed, true);
   assert.equal(state.trailScale, 0);
-  assert.equal(state.postProcessing, true);
+  assert.equal(state.postProcessing, false);
+  assert.ok(state.renderLimit < state.softLimit);
+  assert.ok(state.particleScale < 0.8);
+  assert.ok(state.reflectionScale < 0.3);
   assert.ok(state.resolutionScale < 0.7);
   assert.ok(state.softLimit < state.loadRatio * 12000);
   assert.ok(state.maxSpawnPerFrame < 300);
@@ -28,7 +40,16 @@ test('particle pressure engages before the hard ceiling is approached', () => {
   const state = guard.update({ frameMs: 16, particles: 7000, capacity: 12000 });
   assert.equal(state.level, 2);
   assert.equal(state.name, 'pressure');
+  assert.equal(state.postProcessing, false);
   assert.ok(state.softLimit < 7000);
+});
+
+test('guarded load disables the expensive post-processing path before pressure', () => {
+  const guard = new ParticleLoadGuard();
+  const state = guard.update({ frameMs: 16, particles: 4400, capacity: 12000 });
+  assert.equal(state.level, 1);
+  assert.equal(state.postProcessing, false);
+  assert.ok(state.renderLimit <= 3900);
 });
 
 test('sustained slow frames escalate only after the attack window', () => {
@@ -69,6 +90,10 @@ test('precomputed load engages protection before particles are spawned', () => {
   assert.equal(predicted.forecastLevel, 3);
   assert.equal(predicted.forecastParticles, 9000);
   assert.ok(predicted.effectiveLoadRatio > predicted.loadRatio);
+  assert.equal(predicted.admissionLevel, 1);
+  assert.equal(predicted.forecastLed, true);
+  assert.ok(predicted.burstScale > particleLoadProfile(3).burstScale);
+  assert.ok(predicted.renderLimit > Math.floor(12000 * particleLoadProfile(3).softLimitRatio * particleLoadProfile(3).renderRatio));
 
   const disabled = new ParticleLoadGuard().update({ frameMs: 16, particles: 120, capacity: 12000, forecastParticles: 9000, predictive: false });
   assert.equal(disabled.level, 0);

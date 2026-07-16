@@ -7,7 +7,10 @@ const LOAD_PROFILES = Object.freeze([
     trailScale: 1,
     smokeStride: 1,
     cullRatio: 0,
+    renderRatio: 1,
+    particleScale: 1,
     resolutionScale: 1,
+    reflectionScale: 1,
     postProcessing: true,
   }),
   Object.freeze({
@@ -18,8 +21,11 @@ const LOAD_PROFILES = Object.freeze([
     trailScale: 0.5,
     smokeStride: 2,
     cullRatio: 0.008,
+    renderRatio: 0.46,
+    particleScale: 0.86,
     resolutionScale: 0.9,
-    postProcessing: true,
+    reflectionScale: 0.5,
+    postProcessing: false,
   }),
   Object.freeze({
     name: 'pressure',
@@ -29,8 +35,11 @@ const LOAD_PROFILES = Object.freeze([
     trailScale: 0.15,
     smokeStride: 3,
     cullRatio: 0.025,
+    renderRatio: 0.6,
+    particleScale: 0.86,
     resolutionScale: 0.76,
-    postProcessing: true,
+    reflectionScale: 0.5,
+    postProcessing: false,
   }),
   Object.freeze({
     name: 'emergency',
@@ -40,8 +49,11 @@ const LOAD_PROFILES = Object.freeze([
     trailScale: 0,
     smokeStride: 6,
     cullRatio: 0.08,
+    renderRatio: 0.55,
+    particleScale: 0.76,
     resolutionScale: 0.62,
-    postProcessing: true,
+    reflectionScale: 0.25,
+    postProcessing: false,
   }),
 ]);
 
@@ -50,9 +62,9 @@ function clamp(value, min, max) {
 }
 
 export function particleLoadLevel(ratio) {
-  if (ratio >= 0.64) return 3;
-  if (ratio >= 0.5) return 2;
-  if (ratio >= 0.35) return 1;
+  if (ratio >= 0.62) return 3;
+  if (ratio >= 0.46) return 2;
+  if (ratio >= 0.28) return 1;
   return 0;
 }
 
@@ -118,9 +130,18 @@ export class ParticleLoadGuard {
     }
 
     const profile = LOAD_PROFILES[this.level];
+    const forecastLed = forecastDemand > Math.max(particleDemand, frameDemand);
+    // Forecasts should prepare expensive render paths early without erasing the
+    // show before it starts. Admission tightens to guarded first, then follows
+    // measured particle pressure if the prediction becomes real.
+    const admissionLevel = forecastLed ? Math.max(1, particleDemand) : this.level;
+    const admissionProfile = LOAD_PROFILES[admissionLevel];
+    const softLimit = Math.max(1, Math.min(safeCapacity, Math.floor(safeCapacity * admissionProfile.softLimitRatio)));
     return {
       level: this.level,
       name: profile.name,
+      admissionLevel,
+      forecastLed,
       changed: previousLevel !== this.level,
       loadRatio: ratio,
       effectiveLoadRatio: Math.max(ratio, predictive ? forecastRatio : 0),
@@ -128,13 +149,16 @@ export class ParticleLoadGuard {
       forecastRatio,
       forecastLevel: forecastDemand,
       frameEma: this.frameEma,
-      softLimit: Math.max(1, Math.min(safeCapacity, Math.floor(safeCapacity * profile.softLimitRatio))),
-      maxSpawnPerFrame: Math.max(24, Math.round(safeCapacity * profile.spawnRatio)),
-      burstScale: profile.burstScale,
-      trailScale: profile.trailScale,
-      smokeStride: profile.smokeStride,
-      cullPerFrame: Math.round(safeCapacity * profile.cullRatio),
+      softLimit,
+      maxSpawnPerFrame: Math.max(24, Math.round(safeCapacity * admissionProfile.spawnRatio)),
+      burstScale: admissionProfile.burstScale,
+      trailScale: admissionProfile.trailScale,
+      smokeStride: admissionProfile.smokeStride,
+      cullPerFrame: Math.round(safeCapacity * admissionProfile.cullRatio),
+      renderLimit: Math.max(1, Math.min(softLimit, Math.floor(softLimit * profile.renderRatio))),
+      particleScale: profile.particleScale,
       resolutionScale: profile.resolutionScale,
+      reflectionScale: profile.reflectionScale,
       postProcessing: profile.postProcessing,
     };
   }

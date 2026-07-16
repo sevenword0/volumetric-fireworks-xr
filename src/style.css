@@ -672,6 +672,22 @@ select {
   line-height: 1.55;
 }
 
+.show-choreography-selects {
+  margin-bottom: 8px;
+}
+
+.show-choreography-summary {
+  min-height: 34px;
+  margin: 0 0 13px;
+  padding: 8px 9px;
+  border: 1px solid rgba(94, 233, 255, 0.13);
+  border-radius: 8px;
+  color: #92a6c1;
+  background: rgba(94, 233, 255, 0.035);
+  font-size: 7px;
+  line-height: 1.55;
+}
+
 .impact-status {
   display: flex;
   align-items: center;
@@ -812,6 +828,14 @@ input[type="range"]::-moz-range-thumb {
   grid-template-columns: 1fr 1fr;
   gap: 8px;
   margin-top: 13px;
+}
+
+.show-button-row {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.show-button-row button {
+  padding-inline: 5px;
 }
 
 .primary-button,
@@ -1541,6 +1565,7 @@ kbd {
   .panel-left.collapsed { right: calc(50% + 2px); }
   .panel-right.collapsed { left: calc(50% + 2px); }
   .panel-right:not(.collapsed) { transform: none; overflow-y: auto; }
+  .tab-panel { padding-bottom: 74px; scroll-padding-bottom: 74px; }
   .panel-heading { min-height: 57px; cursor: pointer; }
   .panel-collapse,
   .panel.collapsed .panel-collapse,
