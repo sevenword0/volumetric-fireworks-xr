@@ -14,10 +14,12 @@ import {
   createChoreographyPreviewCue,
   getShowChoreographyPreset,
 } from '../audio/show-choreography.js';
+import { BASE_AIR_DRAG } from '../core/state.js';
 
 const FORMATTERS = {
   'physics.gravity': (value) => `${value.toFixed(2)} g`,
-  'physics.drag': (value) => value.toFixed(3),
+  'physics.drag': (value) => `${(value / BASE_AIR_DRAG).toFixed(2)}×`,
+  'physics.particleLifetime': (value) => `${value.toFixed(2)}×`,
   'physics.windX': (value) => value.toFixed(1),
   'physics.windZ': (value) => value.toFixed(1),
   'physics.vortex': (value) => value.toFixed(2),
@@ -52,7 +54,8 @@ const FORMATTERS = {
 
 const RANGE_BINDINGS = [
   ['gravity', 'physics.gravity'],
-  ['drag', 'physics.drag'],
+  ['drag', 'physics.drag', BASE_AIR_DRAG],
+  ['particle-lifetime', 'physics.particleLifetime'],
   ['wind-x', 'physics.windX'],
   ['wind-z', 'physics.windZ'],
   ['vortex', 'physics.vortex'],

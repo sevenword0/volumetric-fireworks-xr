@@ -1,8 +1,11 @@
 import * as THREE from 'three/webgpu';
+import { BASE_AIR_DRAG, MAX_AIR_DRAG, MAX_POST_BURST_LIFETIME, MIN_POST_BURST_LIFETIME } from '../core/state.js';
 
 const FACE_SIZE = 0.128;
 const HALF = FACE_SIZE / 2;
 const CANVAS_SIZE = 512;
+const ROW_TOP = 78;
+const ROW_BOTTOM = 470;
 
 function drawRoundedRect(context, x, y, width, height, radius) {
   context.beginPath();
@@ -36,6 +39,8 @@ export class XRCubeUI extends EventTarget {
         accent: '#5ee9ff',
         rows: [
           { label: '중력', value: () => `${this.state.physics.gravity.toFixed(2)} g`, action: () => this.adjust('physics.gravity', 0.1, 0, 2) },
+          { label: '공기 저항', value: () => `${(this.state.physics.drag / BASE_AIR_DRAG).toFixed(1)}×`, action: () => this.adjust('physics.drag', BASE_AIR_DRAG, 0, MAX_AIR_DRAG) },
+          { label: '폭발 수명', value: () => `${this.state.physics.particleLifetime.toFixed(2)}×`, action: () => this.adjust('physics.particleLifetime', 0.25, MIN_POST_BURST_LIFETIME, MAX_POST_BURST_LIFETIME) },
           { label: '바람', value: () => `${this.state.physics.windX.toFixed(1)} m/s`, action: () => this.adjust('physics.windX', 0.8, -8, 8) },
           { label: '보텍스', value: () => this.state.physics.vortex.toFixed(2), action: () => this.adjust('physics.vortex', 0.2, 0, 2) },
           { label: '공기 도구', value: () => this.state.tool.toUpperCase(), action: () => this.callbacks.cycleTool?.() },
@@ -155,11 +160,11 @@ export class XRCubeUI extends EventTarget {
     context.font = '500 14px system-ui, sans-serif';
     context.fillText(`${faceIndex + 1} / 5  ·  PYROVERSE XR`, 302, 46);
 
-    const top = 78;
-    const rowHeight = 96;
+    const top = ROW_TOP;
+    const rowHeight = (ROW_BOTTOM - ROW_TOP) / face.rows.length;
     face.rows.forEach((row, rowIndex) => {
       const y = top + rowIndex * rowHeight;
-      drawRoundedRect(context, 24, y, width - 48, rowHeight - 10, 16);
+      drawRoundedRect(context, 24, y, width - 48, rowHeight - 8, Math.min(16, rowHeight * 0.22));
       context.fillStyle = rowIndex === hoverRow ? `${face.accent}24` : 'rgba(255,255,255,0.035)';
       context.fill();
       context.strokeStyle = rowIndex === hoverRow ? face.accent : 'rgba(180, 209, 235, 0.12)';
@@ -167,12 +172,12 @@ export class XRCubeUI extends EventTarget {
       context.stroke();
       context.fillStyle = rowIndex === hoverRow ? '#ffffff' : '#a8b8cb';
       context.font = '550 22px system-ui, sans-serif';
-      context.fillText(row.label, 45, y + 51);
+      context.fillText(row.label, 45, y + rowHeight * 0.58);
       context.fillStyle = rowIndex === hoverRow ? face.accent : '#e9f4ff';
       context.font = '700 19px system-ui, sans-serif';
       context.textAlign = 'right';
       const value = String(row.value()).slice(0, 18);
-      context.fillText(value, width - 46, y + 51);
+      context.fillText(value, width - 46, y + rowHeight * 0.58);
       context.textAlign = 'left';
     });
 
@@ -219,8 +224,11 @@ export class XRCubeUI extends EventTarget {
     const hit = raycaster.intersectObjects(this.faceMeshes.map((record) => record.mesh), false)[0];
     if (!hit?.uv) return null;
     const faceIndex = hit.object.userData.faceIndex;
-    const row = Math.floor((1 - hit.uv.y) * 5.1) - 1;
-    if (row < 0 || row >= 4) return { faceIndex, row: -1, hit };
+    const face = this.faces[faceIndex];
+    const canvasY = (1 - hit.uv.y) * CANVAS_SIZE;
+    const rowHeight = (ROW_BOTTOM - ROW_TOP) / face.rows.length;
+    const row = Math.floor((canvasY - ROW_TOP) / rowHeight);
+    if (canvasY < ROW_TOP || canvasY >= ROW_BOTTOM || row < 0 || row >= face.rows.length) return { faceIndex, row: -1, hit };
     return { faceIndex, row, hit };
   }
 

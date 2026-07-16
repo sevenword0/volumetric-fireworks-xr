@@ -1,6 +1,7 @@
 import * as THREE from 'three/webgpu';
 import { instancedBufferAttribute, positionPrevious, shapeCircle, subBuild } from 'three/tsl';
 import { particleLoadLevel, particleLoadProfile } from '../core/particle-load-guard.js';
+import { MAX_POST_BURST_LIFETIME, MIN_POST_BURST_LIFETIME } from '../core/state.js';
 import { BURST_DIRECTION_STRIDE, createSplitDirections, hashString, mulberry32, writeBurstDirections } from './patterns.js';
 import { FIREWORK_PRESETS, LAUNCH_LAYOUTS } from './presets.js';
 
@@ -97,6 +98,7 @@ export class FireworkEngine extends EventTarget {
     super();
     this.scene = scene;
     this.state = state;
+    this._appliedPostBurstLifetimeScale = clamp(finite(state.physics?.particleLifetime, 1), MIN_POST_BURST_LIFETIME, MAX_POST_BURST_LIFETIME);
     this.maxParticles = options.maxParticles ?? 18000;
     this.particles = [];
     this.pool = [];
@@ -398,6 +400,7 @@ export class FireworkEngine extends EventTarget {
   burst(preset, position, inheritedVelocity = ZERO, scale = 1, yaw = 0, effects = {}) {
     const colorHue = clamp(finite(effects.colorHue, 0), -0.5, 0.5);
     const colorVariation = clamp(finite(effects.colorVariation, 0), 0, 1);
+    const lifetimeScale = this.postBurstLifetimeScale;
     const countScale = clamp(scale ** 0.55, 0.65, 1.35);
     const requestedCount = Math.max(1, Math.round(preset.count * countScale));
     const desiredCount = Math.max(1, Math.round(requestedCount * this.loadBudget.burstScale));
@@ -432,7 +435,7 @@ export class FireworkEngine extends EventTarget {
       writePaletteColor(particle.color, palette, colorT, particleHue);
       writePaletteColor(particle.colorNext, palette, (colorT + 0.42) % 1, particleHue + colorVariation * 0.08);
       particle.age = -this.directionBuffer[offset + 5];
-      particle.life = preset.life * (0.9 + descriptorSeed * 0.18) * Math.sqrt(scale);
+      particle.life = preset.life * (0.9 + descriptorSeed * 0.18) * Math.sqrt(scale) * lifetimeScale;
       particle.size = preset.size * scale * (0.78 + descriptorSeed * 0.48);
       particle.drag = preset.drag;
       particle.gravityScale = preset.gravityScale;
@@ -452,7 +455,7 @@ export class FireworkEngine extends EventTarget {
       particle.burstScale = scale;
     }
 
-    this.spawnPistil(preset, position, scale, seed + 91, { colorHue, colorVariation });
+    this.spawnPistil(preset, position, scale, seed + 91, { colorHue, colorVariation }, lifetimeScale);
     if (preset.multiBreak > 1) {
       for (let index = 1; index < preset.multiBreak; index += 1) {
         const angle = (index / preset.multiBreak) * Math.PI * 2 + this.random() * 0.4;
@@ -474,7 +477,7 @@ export class FireworkEngine extends EventTarget {
     }
 
     const lightColor = writePaletteColor(this._eventColor, palette, 0.25, colorHue);
-    this.dispatchEvent(new CustomEvent('burst', { detail: { preset, position, color: lightColor, scale, count, requestedCount, brightness: this.globalBrightness, colorHue, colorVariation } }));
+    this.dispatchEvent(new CustomEvent('burst', { detail: { preset, position, color: lightColor, scale, count, requestedCount, brightness: this.globalBrightness, colorHue, colorVariation, lifetimeScale } }));
     this.fluid?.addEmitter(position, (2.2 * preset.smoke * scale) / this.loadBudget.smokeStride, 1.9 * scale * this.globalBrightness, lightColor, 2.2);
     return count;
   }
@@ -502,7 +505,7 @@ export class FireworkEngine extends EventTarget {
     return cached;
   }
 
-  spawnPistil(preset, position, scale, seed, effects = {}) {
+  spawnPistil(preset, position, scale, seed, effects = {}, lifetimeScale = this.postBurstLifetimeScale) {
     if (!preset.pistil || preset.pistil === 'none') return;
     const colorHue = clamp(finite(effects.colorHue, 0), -0.5, 0.5);
     const colorVariation = clamp(finite(effects.colorVariation, 0), 0, 1);
@@ -530,7 +533,7 @@ export class FireworkEngine extends EventTarget {
         const particleHue = colorHue + (descriptorSeed - 0.5) * colorVariation * 0.2;
         writePaletteColor(particle.color, corePreset.colors, this.directionBuffer[offset + 4], particleHue);
         writePaletteColor(particle.colorNext, corePreset.colors, (this.directionBuffer[offset + 4] + 0.3) % 1, particleHue + colorVariation * 0.06);
-        particle.life = corePreset.life * (0.9 + this.directionBuffer[offset + 7] * 0.18);
+        particle.life = corePreset.life * (0.9 + this.directionBuffer[offset + 7] * 0.18) * lifetimeScale;
         particle.size = preset.size * 0.7 * scale;
         particle.drag = preset.drag * 1.2;
         particle.gravityScale = preset.gravityScale;
@@ -559,7 +562,8 @@ export class FireworkEngine extends EventTarget {
     ember.velocity.copy(source.velocity).multiplyScalar(0.05).add(this._temp.set(this.random() - 0.5, this.random() - 0.5, this.random() - 0.5).multiplyScalar(0.7));
     ember.color.copy(source.color);
     ember.colorNext.copy(source.colorNext);
-    ember.life = (0.22 + this.random() * 0.45) * (0.55 + source.trail * 0.8);
+    const lifetimeScale = source.type === PARTICLE.SHELL ? 1 : this.postBurstLifetimeScale;
+    ember.life = (0.22 + this.random() * 0.45) * (0.55 + source.trail * 0.8) * lifetimeScale;
     ember.size = source.size * (0.35 + this.random() * 0.42) * strength;
     ember.drag = 0.22;
     ember.gravityScale = source.gravityScale * 0.5;
@@ -580,6 +584,7 @@ export class FireworkEngine extends EventTarget {
   }
 
   splitParticle(source) {
+    const lifetimeScale = this.postBurstLifetimeScale;
     const directions = createSplitDirections(source.velocity, source.split, source.seed);
     const count = Math.max(2, Math.round(directions.length * this.loadBudget.burstScale));
     for (const velocity of directions.slice(0, count)) {
@@ -590,7 +595,7 @@ export class FireworkEngine extends EventTarget {
       child.velocity.set(velocity.x, velocity.y, velocity.z);
       child.color.copy(source.colorNext);
       child.colorNext.copy(source.color);
-      child.life = Math.max(0.55, source.life - source.age + 0.7);
+      child.life = Math.max(0.55 * lifetimeScale, source.life - source.age + 0.7 * lifetimeScale);
       child.size = source.size * 0.72;
       child.drag = source.drag * 1.2;
       child.gravityScale = source.gravityScale;
@@ -610,6 +615,7 @@ export class FireworkEngine extends EventTarget {
   }
 
   spawnCrackle(source) {
+    const lifetimeScale = this.postBurstLifetimeScale;
     const count = Math.max(1, Math.round((3 + Math.floor(this.random() * 4)) * this.loadBudget.burstScale));
     for (let index = 0; index < count; index += 1) {
       const crackle = this.acquire();
@@ -619,7 +625,7 @@ export class FireworkEngine extends EventTarget {
       crackle.velocity.set(this.random() - 0.5, this.random() - 0.4, this.random() - 0.5).normalize().multiplyScalar(3 + this.random() * 4).addScaledVector(source.velocity, 0.15);
       crackle.color.set(this.random() > 0.3 ? 0xffe4a1 : 0xffffff);
       crackle.colorNext.copy(crackle.color);
-      crackle.life = 0.2 + this.random() * 0.36;
+      crackle.life = (0.2 + this.random() * 0.36) * lifetimeScale;
       crackle.size = source.size * (0.7 + this.random() * 0.6);
       crackle.drag = 0.18;
       crackle.gravityScale = 0.5;
@@ -998,6 +1004,24 @@ export class FireworkEngine extends EventTarget {
 
   get renderedCount() {
     return this._renderedCount;
+  }
+
+  setPostBurstLifetimeScale(value) {
+    const next = clamp(finite(value, 1), MIN_POST_BURST_LIFETIME, MAX_POST_BURST_LIFETIME);
+    const previous = this._appliedPostBurstLifetimeScale;
+    if (Math.abs(next - previous) < 1e-6) return next;
+    const ratio = next / previous;
+    for (const particle of this.particles) {
+      if (particle.type === PARTICLE.SHELL) continue;
+      particle.life *= ratio;
+      if (Number.isFinite(particle.splitAt)) particle.splitAt *= ratio;
+    }
+    this._appliedPostBurstLifetimeScale = next;
+    return next;
+  }
+
+  get postBurstLifetimeScale() {
+    return clamp(finite(this.state.physics?.particleLifetime, 1), MIN_POST_BURST_LIFETIME, MAX_POST_BURST_LIFETIME);
   }
 
   get renderLimit() {

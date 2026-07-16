@@ -17,7 +17,7 @@ test('empty input produces complete defaults', () => {
 
 test('numeric state is clamped to safe simulation ranges', () => {
   const state = sanitizeState({
-    physics: { gravity: 20, drag: -4, windX: 99, windZ: -99, vortex: Infinity },
+    physics: { gravity: 20, drag: 99, particleLifetime: 99, windX: 99, windZ: -99, vortex: Infinity },
     volume: { smoke: 8, buoyancy: -1, scattering: 9, shadow: 10 },
     world: { waterRoughness: 8, reflection: -2 },
     quality: { fireworkBrightness: 9, bloomStrength: 9, bloomRadius: -1, bloomThreshold: 4, saturation: 8, motionBlur: -2, focusDistance: -8, focusRange: 999, bokehScale: 9 },
@@ -36,7 +36,10 @@ test('numeric state is clamped to safe simulation ranges', () => {
       colorVariation: -4,
     },
   });
-  assert.deepEqual(state.physics, { gravity: 2, drag: 0, windX: 8, windZ: -8, vortex: 0.42 });
+  assert.deepEqual(state.physics, { gravity: 2, drag: 0.85, particleLifetime: 5, windX: 8, windZ: -8, vortex: 0.42 });
+  assert.deepEqual(sanitizeState({ physics: { drag: -4, particleLifetime: -4 } }).physics, {
+    gravity: 1, drag: 0, particleLifetime: 0.25, windX: 1.6, windZ: 0.3, vortex: 0.42,
+  });
   assert.deepEqual(state.volume, { smoke: 1.5, buoyancy: 0, scattering: 3, shadow: 4 });
   assert.equal(state.world.waterRoughness, 1);
   assert.equal(state.world.reflection, 0);

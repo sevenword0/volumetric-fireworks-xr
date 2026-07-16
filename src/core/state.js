@@ -5,13 +5,19 @@ import {
   getShowChoreographyPreset,
 } from '../audio/show-choreography.js';
 
+export const BASE_AIR_DRAG = 0.085;
+export const MAX_AIR_DRAG = 0.85;
+export const MIN_POST_BURST_LIFETIME = 0.25;
+export const MAX_POST_BURST_LIFETIME = 5;
+
 export const DEFAULT_STATE = Object.freeze({
   selectedPresetId: 'gold-chrysanthemum',
   launchLayout: 'single',
   tool: 'camera',
   physics: {
     gravity: 1,
-    drag: 0.085,
+    drag: BASE_AIR_DRAG,
+    particleLifetime: 1,
     windX: 1.6,
     windZ: 0.3,
     vortex: 0.42,
@@ -85,7 +91,8 @@ export function sanitizeState(candidate = {}) {
     tool: allowed(candidate.tool, ['camera', 'gust', 'vortex', 'repel'], DEFAULT_STATE.tool),
     physics: {
       gravity: finite(candidate.physics?.gravity, DEFAULT_STATE.physics.gravity, 0, 2),
-      drag: finite(candidate.physics?.drag, DEFAULT_STATE.physics.drag, 0, 0.3),
+      drag: finite(candidate.physics?.drag, DEFAULT_STATE.physics.drag, 0, MAX_AIR_DRAG),
+      particleLifetime: finite(candidate.physics?.particleLifetime, DEFAULT_STATE.physics.particleLifetime, MIN_POST_BURST_LIFETIME, MAX_POST_BURST_LIFETIME),
       windX: finite(candidate.physics?.windX, DEFAULT_STATE.physics.windX, -8, 8),
       windZ: finite(candidate.physics?.windZ, DEFAULT_STATE.physics.windZ, -8, 8),
       vortex: finite(candidate.physics?.vortex, DEFAULT_STATE.physics.vortex, 0, 2),

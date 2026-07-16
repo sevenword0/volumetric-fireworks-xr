@@ -37,6 +37,14 @@ test('cross salvos, sequential delay, and explosion power are included in load p
   assert.ok(choreographed[0].load > normal[0].load);
 });
 
+test('post-burst lifetime scale expands the precomputed load window without moving the burst', () => {
+  const normal = expandLaunchLoadEvents(brocade, 'single', 2, { lifetimeScale: 1 });
+  const long = expandLaunchLoadEvents(brocade, 'single', 2, { lifetimeScale: 5 });
+  assert.equal(long[0].time, normal[0].time);
+  assert.ok(long[0].load > normal[0].load);
+  assert.ok(Math.abs(long[0].life - normal[0].life * 5) < 1e-9);
+});
+
 test('music cues are precomputed into high-load timeline windows', () => {
   const planner = new ParticleLoadPlanner({ capacity: 4000 });
   const plan = planner.planShow([

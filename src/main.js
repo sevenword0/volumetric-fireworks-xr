@@ -10,7 +10,7 @@ import { FireworkSoundEngine } from './audio/firework-sound.js';
 import { ParticleLoadGuard, particleLoadLevel } from './core/particle-load-guard.js';
 import { ParticleLoadPlanner } from './core/particle-load-planner.js';
 import { BOKEH_SAMPLE_COUNT, bokehDepthOfField } from './core/post-effects.js';
-import { createAppState } from './core/state.js';
+import { BASE_AIR_DRAG, createAppState } from './core/state.js';
 import { FIREWORK_PRESETS } from './pyro/presets.js';
 import { FireworkEngine } from './pyro/firework-engine.js';
 import { WorldScene } from './scene/world.js';
@@ -410,6 +410,11 @@ function setupUIEvents() {
     if (event.detail.path === 'quality.particleBlend') engine.setBlendingMode(event.detail.value);
     if (event.detail.path === 'quality.fireworkBrightness') engine.setGlobalBrightness(event.detail.value);
     if (event.detail.path === 'sound.volume') fireworkSound.setVolume();
+    if (event.detail.path === 'physics.particleLifetime') {
+      engine.setPostBurstLifetimeScale(event.detail.value);
+      particleLoadPlanner.clearManualPlan();
+      refreshShowLoadPlan();
+    }
     if (event.detail.path === 'show.musicVolume') audio.setVolume(event.detail.value);
   });
   ui.addEventListener('soundtoggle', (event) => {
@@ -599,15 +604,18 @@ function createCubeCallbacks() {
   const qualities = ['auto', 'high', 'medium', 'low'];
   return {
     setState(path, value) {
-      store.set(path, value);
       const binding = RANGE_BINDINGS_FOR_CUBE[path];
       if (binding) {
-        const input = document.getElementById(binding);
+        const inputId = typeof binding === 'string' ? binding : binding.id;
+        const scale = typeof binding === 'string' ? 1 : binding.scale;
+        const input = document.getElementById(inputId);
         if (input) {
-          input.value = value;
+          input.value = value / scale;
           input.dispatchEvent(new Event('input'));
+          return;
         }
       }
+      store.set(path, value);
     },
     cycleTool: () => ui.cycleTool(),
     getPresetName: () => ui.selectedPreset.name,
@@ -676,6 +684,8 @@ function createCubeCallbacks() {
 
 const RANGE_BINDINGS_FOR_CUBE = Object.freeze({
   'physics.gravity': 'gravity',
+  'physics.drag': { id: 'drag', scale: BASE_AIR_DRAG },
+  'physics.particleLifetime': 'particle-lifetime',
   'physics.windX': 'wind-x',
   'physics.vortex': 'vortex',
   'quality.fireworkBrightness': 'firework-brightness',
@@ -688,7 +698,7 @@ function clearSimulation() {
 }
 
 function scheduleSingle(preset, options = {}) {
-  if (state.quality.predictiveLoad) particleLoadPlanner.scheduleLaunch(preset, 'single', engine.time, options);
+  if (state.quality.predictiveLoad) particleLoadPlanner.scheduleLaunch(preset, 'single', engine.time, { ...options, lifetimeScale: state.physics.particleLifetime });
   engine.schedule(preset, options);
 }
 
@@ -699,7 +709,7 @@ function refreshShowLoadPlan() {
     ui.setLoadPlan(showLoadPlan);
     return showLoadPlan;
   }
-  showLoadPlan = particleLoadPlanner.planShow(showCues, (presetId) => FIREWORK_PRESETS.find((preset) => preset.id === presetId));
+  showLoadPlan = particleLoadPlanner.planShow(showCues, (presetId) => FIREWORK_PRESETS.find((preset) => preset.id === presetId), { lifetimeScale: state.physics.particleLifetime });
   ui.setLoadPlan(showLoadPlan);
   return showLoadPlan;
 }
@@ -707,7 +717,7 @@ function refreshShowLoadPlan() {
 function launchPreset(preset, layout = 'single', options = {}) {
   if (!engine || !preset) return;
   void armFireworkSound();
-  if (state.quality.predictiveLoad) particleLoadPlanner.scheduleLaunch(preset, layout, engine.time, options);
+  if (state.quality.predictiveLoad) particleLoadPlanner.scheduleLaunch(preset, layout, engine.time, { ...options, lifetimeScale: state.physics.particleLifetime });
   const count = engine.launchLayout(preset, layout, options);
   ui.toast(`${preset.name} · ${layout.toUpperCase()} ${count}발`);
 }
@@ -735,7 +745,7 @@ function launchShowCue(cue, manualPreview = false) {
   const options = showCueLaunchOptions(cue);
   let count;
   if (manualPreview) {
-    if (state.quality.predictiveLoad) particleLoadPlanner.scheduleLaunch(preset, cue.layout, engine.time, options);
+    if (state.quality.predictiveLoad) particleLoadPlanner.scheduleLaunch(preset, cue.layout, engine.time, { ...options, lifetimeScale: state.physics.particleLifetime });
     count = engine.launchLayout(preset, cue.layout, options);
     ui.toast(`${preset.name} · ${cue.choreography?.directionMode ?? 'music'} · ${count}발 미리보기`);
   } else {
