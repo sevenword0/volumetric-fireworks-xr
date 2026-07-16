@@ -1,5 +1,6 @@
 import { LAUNCH_LAYOUTS } from '../pyro/presets.js';
 import { particleLoadLevel } from './particle-load-guard.js';
+import { MAX_POST_BURST_LIFETIME, MIN_POST_BURST_LIFETIME } from './state.js';
 
 const IMMEDIATE_PATTERNS = new Set(['mine', 'cometFan', 'romanCandle', 'waterfall']);
 const LEVEL_NAMES = ['normal', 'guarded', 'pressure', 'emergency'];
@@ -19,25 +20,32 @@ function pistilCount(preset) {
   return preset.pistil === 'ring' ? 55 : 68;
 }
 
-export function estimateParticleLoad(preset = {}, scale = 1) {
+export function estimateParticleLoad(preset = {}, scale = 1, lifetimeScale = 1) {
   const safeScale = clamp(finite(scale, 1), 0.35, 2.2);
+  const safeLifetime = clamp(finite(lifetimeScale, 1), MIN_POST_BURST_LIFETIME, MAX_POST_BURST_LIFETIME);
   const countScale = clamp(safeScale ** 0.55, 0.65, 1.35);
   const stars = Math.max(1, Math.round(finite(preset.count, 1) * countScale));
   const core = stars + pistilCount(preset);
   const trail = clamp(finite(preset.trail, 0), 0, 1.25);
   const trailRate = clamp(finite(preset.trailRate, 18), 0, 48);
-  const trailMultiplier = 1 + trail * trailRate * 0.12;
+  const trailMultiplier = 1 + trail * trailRate * 0.12 * safeLifetime;
   const splitLoad = stars * clamp(finite(preset.split, 0), 0, 8) * 0.14;
   const crackleLoad = stars * clamp(finite(preset.crackle, 0), 0, 1) * 0.55;
-  return Math.max(1, Math.round(core * trailMultiplier + splitLoad + crackleLoad));
+  return Math.max(1, Math.round(core * trailMultiplier + (splitLoad + crackleLoad) * safeLifetime));
 }
 
-function addBurstEvents(events, preset, time, scale) {
+function plannedBurstLife(preset, scale, lifetimeScale) {
+  const safeScale = clamp(finite(scale, 1), 0.35, 2.2);
+  const safeLifetime = clamp(finite(lifetimeScale, 1), MIN_POST_BURST_LIFETIME, MAX_POST_BURST_LIFETIME);
+  return clamp((finite(preset.life, 3.1) * Math.sqrt(safeScale) + 0.7) * safeLifetime, 0.2, 42.5);
+}
+
+function addBurstEvents(events, preset, time, scale, lifetimeScale) {
   const safeScale = clamp(finite(scale, 1), 0.35, 2.2);
   events.push({
     time: Math.max(0, finite(time, 0)),
-    life: clamp(finite(preset.life, 3.1) * Math.sqrt(safeScale) + 0.7, 0.8, 8.5),
-    load: estimateParticleLoad(preset, safeScale),
+    life: plannedBurstLife(preset, safeScale, lifetimeScale),
+    load: estimateParticleLoad(preset, safeScale, lifetimeScale),
   });
 
   const breaks = clamp(Math.round(finite(preset.multiBreak, 1)), 1, 4);
@@ -46,8 +54,8 @@ function addBurstEvents(events, preset, time, scale) {
     const childScale = safeScale * 0.8;
     events.push({
       time: Math.max(0, time + index * 0.32),
-      life: clamp(finite(childPreset.life, 3.1) * Math.sqrt(childScale) + 0.7, 0.8, 8.5),
-      load: estimateParticleLoad(childPreset, childScale),
+      life: plannedBurstLife(childPreset, childScale, lifetimeScale),
+      load: estimateParticleLoad(childPreset, childScale, lifetimeScale),
     });
   }
 }
@@ -57,6 +65,7 @@ export function expandLaunchLoadEvents(preset, layoutName = 'single', launchTime
   const layout = LAUNCH_LAYOUTS[layoutName] ?? LAUNCH_LAYOUTS.single;
   const events = [];
   const launchScale = clamp(finite(options.scale, 1), 0.35, 2.2);
+  const lifetimeScale = clamp(finite(options.lifetimeScale, 1), MIN_POST_BURST_LIFETIME, MAX_POST_BURST_LIFETIME);
   const explosionPower = clamp(finite(options.explosionPower, 1), 0.5, 1.8);
   const burstScale = clamp(launchScale * explosionPower, 0.35, 2.2);
   const baseDelay = Math.max(0, finite(options.delay, 0));
@@ -71,14 +80,14 @@ export function expandLaunchLoadEvents(preset, layoutName = 'single', launchTime
       if (preset.pattern === 'romanCandle') {
         const repeat = clamp(Math.round(finite(preset.repeat, 7)), 1, 16);
         const candlePreset = { ...preset, pattern: 'cometFan', count: 1, multiBreak: 1 };
-        for (let index = 0; index < repeat; index += 1) addBurstEvents(events, candlePreset, scheduledTime + index * 0.34, burstScale);
+        for (let index = 0; index < repeat; index += 1) addBurstEvents(events, candlePreset, scheduledTime + index * 0.34, burstScale, lifetimeScale);
         continue;
       }
 
       const burstTime = IMMEDIATE_PATTERNS.has(preset.pattern)
         ? scheduledTime
         : scheduledTime + Math.max(0, finite(preset.fuse, 2.1)) * Math.sqrt(launchScale);
-      addBurstEvents(events, preset, burstTime, burstScale);
+      addBurstEvents(events, preset, burstTime, burstScale, lifetimeScale);
     }
   }
   return events;
@@ -172,7 +181,7 @@ export class ParticleLoadPlanner {
     this.showWindows = buildWindows(this.showTimeline, this.capacity, this.bucketSeconds);
   }
 
-  planShow(cues = [], resolvePreset = () => null) {
+  planShow(cues = [], resolvePreset = () => null, options = {}) {
     const events = [];
     for (const cue of cues) {
       const preset = typeof resolvePreset === 'function' ? resolvePreset(cue.presetId, cue) : resolvePreset?.get?.(cue.presetId);
@@ -184,6 +193,7 @@ export class ParticleLoadPlanner {
         explosionPower: choreography.explosionPower,
         sequenceDelay: choreography.sequenceDelay,
         crossLaunch: choreography.crossLaunch,
+        lifetimeScale: options.lifetimeScale,
       }));
     }
     this.showEvents = events.sort((a, b) => a.time - b.time);

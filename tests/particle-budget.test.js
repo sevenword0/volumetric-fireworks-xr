@@ -8,7 +8,7 @@ function createEngine(maxParticles = 1000) {
   const scene = { add() {}, remove() {} };
   const state = {
     quality: { particleBlend: 'additive' },
-    physics: { gravity: 1, drag: 0.08, windX: 0, windZ: 0, vortex: 0 },
+    physics: { gravity: 1, drag: 0.08, particleLifetime: 1, windX: 0, windZ: 0, vortex: 0 },
   };
   return new FireworkEngine(scene, state, { maxParticles });
 }
@@ -130,6 +130,36 @@ test('scaled music shells keep enough lifetime to reach their burst event', () =
   assert.equal(burstEvents, 1);
   assert.ok(engine.particles.some((particle) => particle.preset === preset && particle.fuse === Infinity));
   engine.dispose();
+});
+
+test('global post-burst lifetime scales explosion particles but not the shell or its trail', () => {
+  const preset = FIREWORK_PRESETS[0];
+  const normal = createEngine(512);
+  const long = createEngine(512);
+  long.state.physics.particleLifetime = 3;
+  const budget = { softLimit: 512, maxSpawnPerFrame: 512, burstScale: 0.12, trailScale: 1, smokeStride: 1 };
+  normal.setLoadBudget(budget);
+  long.setLoadBudget(budget);
+
+  normal.launchNow(preset);
+  long.launchNow(preset);
+  const normalShell = normal.particles[0];
+  const longShell = long.particles[0];
+  assert.equal(longShell.life, normalShell.life);
+  normal.spawnEmber(normalShell);
+  long.spawnEmber(longShell);
+  assert.equal(long.particles.at(-1).life, normal.particles.at(-1).life);
+
+  normal.clear();
+  long.clear();
+  normal.burst(preset, new THREE.Vector3());
+  long.burst(preset, new THREE.Vector3());
+  assert.ok(Math.abs(long.particles[0].life - normal.particles[0].life * 3) < 1e-9);
+  const existingLife = normal.particles[0].life;
+  normal.setPostBurstLifetimeScale(2);
+  assert.ok(Math.abs(normal.particles[0].life - existingLife * 2) < 1e-9);
+  normal.dispose();
+  long.dispose();
 });
 
 test('particle motion vectors retain the exact previous simulated position', () => {
