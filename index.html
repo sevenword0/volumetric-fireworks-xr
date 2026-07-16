@@ -107,13 +107,26 @@
             <span><small>LENGTH</small><b id="music-length">—</b></span>
             <span title="사전 계산된 고부하 구간"><small>LOAD</small><b id="music-loads">0</b></span>
           </div>
+          <div class="control-grid show-choreography-selects">
+            <label>음악 쇼 연출<select id="show-choreography" aria-label="음악 쇼 연출 프리셋"></select></label>
+            <label>발사 방향<select id="show-direction" aria-label="음악 쇼 발사 방향"></select></label>
+          </div>
+          <p class="show-choreography-summary" id="show-choreography-summary" aria-live="polite"></p>
           <div class="range-stack">
+            <label><span>음악 볼륨 <output id="music-volume-out">78%</output></span><input id="music-volume" type="range" min="0" max="1" value="0.78" step="0.02" /></label>
             <label><span>비트 감도 <output id="beat-sensitivity-out">68%</output></span><input id="beat-sensitivity" type="range" min="0" max="100" value="68" /></label>
             <label><span>발사 밀도 <output id="show-density-out">62%</output></span><input id="show-density" type="range" min="10" max="100" value="62" /></label>
             <label><span>형상 다양성 <output id="show-variety-out">78%</output></span><input id="show-variety" type="range" min="0" max="100" value="78" /></label>
             <label><span>피날레 강도 <output id="finale-intensity-out">85%</output></span><input id="finale-intensity" type="range" min="0" max="100" value="85" /></label>
+            <label><span>발사 강도 <output id="show-launch-power-out">100%</output></span><input id="show-launch-power" type="range" min="50" max="160" value="100" /></label>
+            <label><span>폭발 강도 <output id="show-explosion-power-out">100%</output></span><input id="show-explosion-power" type="range" min="50" max="160" value="100" /></label>
+            <label><span>발사 위치 폭 <output id="show-position-spread-out">72%</output></span><input id="show-position-spread" type="range" min="0" max="150" value="72" /></label>
+            <label><span>순차 발사 <output id="show-sequence-out">38%</output></span><input id="show-sequence" type="range" min="0" max="100" value="38" /></label>
+            <label><span>교차 발사 <output id="show-crossfire-out">24%</output></span><input id="show-crossfire" type="range" min="0" max="100" value="24" /></label>
+            <label><span>컬러 변화 베리에이션 <output id="show-color-variation-out">58%</output></span><input id="show-color-variation" type="range" min="0" max="100" value="58" /></label>
           </div>
-          <div class="button-row">
+          <div class="button-row show-button-row">
+            <button class="secondary-button" id="preview-show" type="button">연출 미리보기</button>
             <button class="secondary-button" id="generate-show" type="button" disabled>자동 쇼 생성</button>
             <button class="primary-button" id="play-show" type="button" disabled>▶ 쇼 재생</button>
           </div>
@@ -155,6 +168,11 @@
               <option value="custom">사용자 이미지</option>
             </select></label>
             <label class="file-button" for="environment-input"><input id="environment-input" type="file" accept="image/*" hidden /><span>＋</span> 배경 이미지 매핑</label>
+            <div class="segmented" id="camera-view" role="group" aria-label="카메라 시점 프리셋">
+              <button class="active" type="button" data-view="default">기본</button>
+              <button type="button" data-view="wide">원경</button>
+              <button type="button" data-view="low">저각</button>
+            </div>
             <div class="segmented" id="floor-mode" role="group" aria-label="바닥 재질">
               <button type="button" data-value="matte">무광</button>
               <button class="active" type="button" data-value="water">수면 반사</button>
@@ -177,15 +195,19 @@
               <label><span>블룸 반경 <output id="bloom-radius-out">0.58</output></span><input id="bloom-radius" type="range" min="0" max="1" value="0.58" step="0.02" /></label>
               <label><span>블룸 임계값 <output id="bloom-threshold-out">0.78</output></span><input id="bloom-threshold" type="range" min="0" max="2" value="0.78" step="0.02" /></label>
               <label><span>채도 <output id="saturation-out">100%</output></span><input id="saturation" type="range" min="0" max="2" value="1" step="0.05" /></label>
-              <label><span>모션 블러 <output id="motion-blur-out">35%</output></span><input id="motion-blur" type="range" min="0" max="3" value="0.35" step="0.01" /></label>
+              <label><span>파티클 이동결 모션 블러 <output id="motion-blur-out">62%</output></span><input id="motion-blur" type="range" min="0" max="3" value="0.62" step="0.01" /></label>
+              <label><span>초점 거리 <output id="focus-distance-out">70m</output></span><input id="focus-distance" type="range" min="2" max="300" value="70" step="1" /></label>
+              <label><span>초점 폭 <output id="focus-range-out">26m</output></span><input id="focus-range" type="range" min="1" max="160" value="26" step="1" /></label>
+              <label><span>보케 크기 <output id="bokeh-scale-out">0.65×</output></span><input id="bokeh-scale" type="range" min="0" max="2" value="0.65" step="0.05" /></label>
             </div>
             <div class="toggle-row vertical">
               <label><input id="bloom-toggle" type="checkbox" checked /><span></span>발광 블룸</label>
+              <label><input id="dof-toggle" type="checkbox" checked /><span></span>아웃포커스 보케</label>
               <label><input id="shadow-toggle" type="checkbox" checked /><span></span>동적 그림자</label>
               <label><input id="adaptive-toggle" type="checkbox" checked /><span></span>적응형 해상도</label>
               <label><input id="predictive-load-toggle" type="checkbox" checked /><span></span>부하구간 사전 연산</label>
             </div>
-            <p class="control-note">예약 발사와 음악 큐의 부하구간을 미리 계산해 급증 전에 품질을 조절합니다. 모션 블러는 XR에서 자동 제외됩니다.</p>
+            <p class="control-note">이전·현재 파티클 위치로 이동결을 계산합니다. 보케와 모션 블러는 XR 및 고부하 보호 구간에서 자동 제외됩니다.</p>
           </div>
         </div>
         <div class="accordion open">
@@ -220,7 +242,7 @@
             <option value="single">중앙 단발</option><option value="pair">좌우 대칭</option><option value="fan5">5연 부채</option><option value="arc7">7연 아크</option><option value="horizon9">수평 웨이브</option><option value="circle8">원형 포위</option><option value="finale">피날레 월</option>
           </select></label>
         </div>
-        <p class="interaction-hint" id="interaction-hint"><b>드래그</b> 회전 · <b>휠</b> 줌 · <b>SPACE</b> 발사</p>
+        <p class="interaction-hint" id="interaction-hint"><b>드래그</b> 회전 · <b>우클릭</b> 이동 · <b>휠</b> 원거리 줌 · <b>SPACE</b> 발사</p>
       </section>
 
       <div class="toast-stack" id="toast-stack" aria-live="polite"></div>
@@ -246,7 +268,9 @@
         <button class="dialog-close" type="button" data-close-dialog aria-label="닫기">×</button>
         <p class="eyebrow">QUICK GUIDE</p><h2>조작 가이드</h2>
         <div class="help-grid">
-          <div><kbd>드래그</kbd><b>카메라 회전</b><p>관찰 도구에서 궤도 회전</p></div>
+          <div><kbd>드래그</kbd><b>카메라 회전</b><p>지면 가까운 저각까지 자유 회전</p></div>
+          <div><kbd>우클릭</kbd><b>카메라 이동</b><p>시점과 주시점을 함께 팬 이동</p></div>
+          <div><kbd>휠</kbd><b>원거리 줌</b><p>최대 260m 범위에서 확대·축소</p></div>
           <div><kbd>SPACE</kbd><b>선택 불꽃 발사</b><p>현재 배치 프리셋으로 발사</p></div>
           <div><kbd>W</kbd><b>바람 브러시</b><p>입자와 볼륨 공기를 밀기</p></div>
           <div><kbd>V</kbd><b>보텍스 브러시</b><p>회전하는 공기장 만들기</p></div>

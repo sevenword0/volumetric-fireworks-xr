@@ -1,4 +1,12 @@
 const TAU = Math.PI * 2;
+export const BURST_DIRECTION_STRIDE = 8;
+
+const STAR_OUTLINE = Object.freeze(Array.from({ length: 11 }, (_, index) => {
+  const pointIndex = index % 10;
+  const angle = -Math.PI / 2 + (pointIndex / 10) * TAU;
+  const radius = pointIndex % 2 === 0 ? 1 : 0.42;
+  return Object.freeze({ x: Math.cos(angle) * radius, y: Math.sin(angle) * radius });
+}));
 
 export function mulberry32(seed) {
   let value = seed >>> 0;
@@ -21,138 +29,145 @@ export function hashString(value) {
 }
 
 function normalize(x, y, z) {
-  const length = Math.hypot(x, y, z) || 1;
-  return { x: x / length, y: y / length, z: z / length };
+  return normalizeInto({ x: 0, y: 0, z: 0 }, x, y, z);
 }
 
-function sphereDirection(index, count, random) {
+function normalizeInto(target, x, y, z) {
+  const length = Math.hypot(x, y, z) || 1;
+  target.x = x / length;
+  target.y = y / length;
+  target.z = z / length;
+  return target;
+}
+
+function sphereDirection(target, index, count, random) {
   const goldenAngle = Math.PI * (3 - Math.sqrt(5));
   const jitter = (random() - 0.5) / Math.sqrt(Math.max(1, count));
   const y = 1 - ((index + 0.5) / count) * 2;
   const radius = Math.sqrt(Math.max(0, 1 - y * y));
   const theta = index * goldenAngle + jitter * TAU;
-  return normalize(Math.cos(theta) * radius, y, Math.sin(theta) * radius);
+  return normalizeInto(target, Math.cos(theta) * radius, y, Math.sin(theta) * radius);
 }
 
-function pointOnPolyline(points, t) {
+function pointOnPolyline(target, points, t) {
   const segments = points.length - 1;
   const scaled = Math.min(segments - Number.EPSILON, Math.max(0, t * segments));
   const index = Math.floor(scaled);
   const local = scaled - index;
-  return {
-    x: points[index].x + (points[index + 1].x - points[index].x) * local,
-    y: points[index].y + (points[index + 1].y - points[index].y) * local,
-  };
+  target.x = points[index].x + (points[index + 1].x - points[index].x) * local;
+  target.y = points[index].y + (points[index + 1].y - points[index].y) * local;
+  target.z = 0;
+  return target;
 }
 
 function starOutline() {
-  const points = [];
-  for (let index = 0; index < 10; index += 1) {
-    const angle = -Math.PI / 2 + (index / 10) * TAU;
-    const radius = index % 2 === 0 ? 1 : 0.42;
-    points.push({ x: Math.cos(angle) * radius, y: Math.sin(angle) * radius });
-  }
-  points.push(points[0]);
-  return points;
+  return STAR_OUTLINE;
 }
 
-function smileyPoint(index, count) {
+function smileyPoint(target, index, count) {
   const circleCount = Math.floor(count * 0.58);
   const eyeCount = Math.floor(count * 0.12);
   if (index < circleCount) {
     const angle = (index / circleCount) * TAU;
-    return { x: Math.cos(angle), y: Math.sin(angle) };
+    target.x = Math.cos(angle);
+    target.y = Math.sin(angle);
+    return target;
   }
   if (index < circleCount + eyeCount) {
     const local = (index - circleCount) / Math.max(1, eyeCount - 1);
     const eye = index % 2 === 0 ? -0.36 : 0.36;
-    return { x: eye, y: 0.34 + (local - 0.5) * 0.08 };
+    target.x = eye;
+    target.y = 0.34 + (local - 0.5) * 0.08;
+    return target;
   }
   const local = (index - circleCount - eyeCount) / Math.max(1, count - circleCount - eyeCount - 1);
   const angle = Math.PI * 0.18 + local * Math.PI * 0.64;
-  return { x: Math.cos(angle) * 0.62, y: -0.03 - Math.sin(angle) * 0.58 };
+  target.x = Math.cos(angle) * 0.62;
+  target.y = -0.03 - Math.sin(angle) * 0.58;
+  return target;
 }
 
-function butterflyPoint(t) {
+function butterflyPoint(target, t) {
   const angle = t * 12 * Math.PI;
   const radius = Math.exp(Math.sin(angle)) - 2 * Math.cos(4 * angle) + Math.sin((2 * angle - Math.PI) / 24) ** 5;
-  return { x: Math.sin(angle) * radius * 0.26, y: Math.cos(angle) * radius * 0.26 };
+  target.x = Math.sin(angle) * radius * 0.26;
+  target.y = Math.cos(angle) * radius * 0.26;
+  return target;
 }
 
-function directionForPattern(pattern, index, count, random) {
+function directionForPattern(target, pattern, index, count, random) {
   const t = (index + 0.5) / count;
-  const noise = () => (random() - 0.5);
 
   switch (pattern) {
     case 'ring': {
       const angle = t * TAU;
-      return normalize(Math.cos(angle), Math.sin(angle), noise() * 0.035);
+      return normalizeInto(target, Math.cos(angle), Math.sin(angle), (random() - 0.5) * 0.035);
     }
     case 'doubleRing': {
       const ring = index % 2;
       const angle = (Math.floor(index / 2) / Math.ceil(count / 2)) * TAU + ring * 0.035;
       const tilt = ring ? 0.42 : -0.42;
-      return normalize(Math.cos(angle), Math.sin(angle) * Math.cos(tilt), Math.sin(angle) * Math.sin(tilt));
+      return normalizeInto(target, Math.cos(angle), Math.sin(angle) * Math.cos(tilt), Math.sin(angle) * Math.sin(tilt));
     }
     case 'saturn': {
       if (index < count * 0.48) {
         const angle = (index / Math.max(1, Math.floor(count * 0.48))) * TAU;
-        return normalize(Math.cos(angle) * 1.2, Math.sin(angle) * 0.24, Math.sin(angle) * 0.86);
+        return normalizeInto(target, Math.cos(angle) * 1.2, Math.sin(angle) * 0.24, Math.sin(angle) * 0.86);
       }
-      return sphereDirection(index - Math.floor(count * 0.48), Math.ceil(count * 0.52), random);
+      return sphereDirection(target, index - Math.floor(count * 0.48), Math.ceil(count * 0.52), random);
     }
     case 'palm': {
       const arms = 12;
       const arm = index % arms;
       const progress = 0.35 + Math.floor(index / arms) / Math.max(1, Math.ceil(count / arms) - 1) * 0.65;
-      const angle = (arm / arms) * TAU + noise() * 0.04;
-      return normalize(Math.cos(angle) * progress, 0.32 + progress * 0.72, Math.sin(angle) * progress);
+      const angle = (arm / arms) * TAU + (random() - 0.5) * 0.04;
+      return normalizeInto(target, Math.cos(angle) * progress, 0.32 + progress * 0.72, Math.sin(angle) * progress);
     }
     case 'willow': {
-      const direction = sphereDirection(index, count, random);
+      const direction = sphereDirection(target, index, count, random);
       direction.y = direction.y * 0.82 + 0.18;
-      return normalize(direction.x, direction.y, direction.z);
+      return normalizeInto(target, direction.x, direction.y, direction.z);
     }
     case 'horsetail': {
-      const angle = (index / count) * TAU + noise() * 0.08;
+      const angle = (index / count) * TAU + (random() - 0.5) * 0.08;
       const radius = 0.32 + random() * 0.68;
-      return normalize(Math.cos(angle) * radius, 0.22 + random() * 0.48, Math.sin(angle) * radius * 0.55);
+      return normalizeInto(target, Math.cos(angle) * radius, 0.22 + random() * 0.48, Math.sin(angle) * radius * 0.55);
     }
     case 'spider': {
       const arms = 18;
       const arm = index % arms;
       const angle = (arm / arms) * TAU;
       const elevation = ((arm % 5) - 2) * 0.13;
-      return normalize(Math.cos(angle) + noise() * 0.035, elevation + noise() * 0.03, Math.sin(angle) + noise() * 0.035);
+      return normalizeInto(target, Math.cos(angle) + (random() - 0.5) * 0.035, elevation + (random() - 0.5) * 0.03, Math.sin(angle) + (random() - 0.5) * 0.035);
     }
     case 'heart': {
       const angle = t * TAU;
       const x = 16 * Math.sin(angle) ** 3;
       const y = 13 * Math.cos(angle) - 5 * Math.cos(2 * angle) - 2 * Math.cos(3 * angle) - Math.cos(4 * angle);
-      return normalize(x / 17, y / 17, noise() * 0.018);
+      return normalizeInto(target, x / 17, y / 17, (random() - 0.5) * 0.018);
     }
     case 'star': {
-      const point = pointOnPolyline(starOutline(), t);
-      return normalize(point.x, point.y, noise() * 0.018);
+      const point = pointOnPolyline(target, starOutline(), t);
+      return normalizeInto(target, point.x, point.y, (random() - 0.5) * 0.018);
     }
     case 'smiley': {
-      const point = smileyPoint(index, count);
-      return normalize(point.x, point.y, noise() * 0.014);
+      const point = smileyPoint(target, index, count);
+      return normalizeInto(target, point.x, point.y, (random() - 0.5) * 0.014);
     }
     case 'butterfly': {
-      const point = butterflyPoint(t);
-      return normalize(point.x, point.y, noise() * 0.035);
+      const point = butterflyPoint(target, t);
+      return normalizeInto(target, point.x, point.y, (random() - 0.5) * 0.035);
     }
     case 'spiral': {
       const angle = t * TAU * 4.5;
       const radius = 0.18 + t * 0.82;
-      return normalize(Math.cos(angle) * radius, (t - 0.5) * 1.1, Math.sin(angle) * radius);
+      return normalizeInto(target, Math.cos(angle) * radius, (t - 0.5) * 1.1, Math.sin(angle) * radius);
     }
     case 'helix': {
       const strand = index % 2;
       const local = Math.floor(index / 2) / Math.max(1, Math.ceil(count / 2) - 1);
       const angle = local * TAU * 3.4 + strand * Math.PI;
-      return normalize(Math.cos(angle) * 0.78, (local - 0.5) * 1.4, Math.sin(angle) * 0.78);
+      return normalizeInto(target, Math.cos(angle) * 0.78, (local - 0.5) * 1.4, Math.sin(angle) * 0.78);
     }
     case 'galaxy': {
       const arms = 4;
@@ -160,50 +175,75 @@ function directionForPattern(pattern, index, count, random) {
       const local = Math.floor(index / arms) / Math.max(1, Math.ceil(count / arms) - 1);
       const angle = (arm / arms) * TAU + local * TAU * 1.45;
       const radius = 0.12 + local * 0.9;
-      return normalize(Math.cos(angle) * radius, noise() * 0.18, Math.sin(angle) * radius);
+      return normalizeInto(target, Math.cos(angle) * radius, (random() - 0.5) * 0.18, Math.sin(angle) * radius);
     }
     case 'mine': {
       const angle = -Math.PI * 0.72 + t * Math.PI * 0.44;
-      return normalize(Math.sin(angle) * 0.9 + noise() * 0.08, 0.72 + random() * 0.54, Math.cos(angle) * 0.18 + noise() * 0.22);
+      return normalizeInto(target, Math.sin(angle) * 0.9 + (random() - 0.5) * 0.08, 0.72 + random() * 0.54, Math.cos(angle) * 0.18 + (random() - 0.5) * 0.22);
     }
     case 'cometFan': {
       const spread = count <= 1 ? 0 : index / (count - 1) - 0.5;
-      return normalize(spread * 1.4, 1.1 - Math.abs(spread) * 0.18, noise() * 0.08);
+      return normalizeInto(target, spread * 1.4, 1.1 - Math.abs(spread) * 0.18, (random() - 0.5) * 0.08);
     }
     case 'romanCandle':
-      return normalize(noise() * 0.18, 1, noise() * 0.18);
+      return normalizeInto(target, (random() - 0.5) * 0.18, 1, (random() - 0.5) * 0.18);
     case 'waterfall': {
       const angle = t * TAU;
-      return normalize(Math.cos(angle) * 0.65, -0.4 - random() * 0.55, Math.sin(angle) * 0.25);
+      return normalizeInto(target, Math.cos(angle) * 0.65, -0.4 - random() * 0.55, Math.sin(angle) * 0.25);
     }
     case 'crossette':
     case 'dahlia':
     case 'chrysanthemum':
     case 'peony':
     default:
-      return sphereDirection(index, count, random);
+      return sphereDirection(target, index, count, random);
   }
 }
 
-export function generateBurstDirections(preset, count = preset.count, seed = hashString(preset.id ?? 'custom')) {
+export function writeBurstDirections(preset, count, seed, target) {
   const random = mulberry32(seed);
-  const result = [];
   const safeCount = Math.max(1, Math.floor(count));
+  const direction = { x: 0, y: 0, z: 0 };
+  if (!target || target.length < safeCount * BURST_DIRECTION_STRIDE) {
+    throw new RangeError(`Burst direction buffer requires ${safeCount * BURST_DIRECTION_STRIDE} values`);
+  }
   for (let index = 0; index < safeCount; index += 1) {
-    const direction = directionForPattern(preset.pattern, index, safeCount, random);
+    directionForPattern(direction, preset.pattern, index, safeCount, random);
     let speedScale = 0.82 + random() * 0.34;
     if (preset.pattern === 'dahlia') speedScale *= 1.1 + random() * 0.22;
     if (preset.pattern === 'willow' || preset.pattern === 'horsetail') speedScale *= 0.76 + random() * 0.18;
     if (preset.pattern === 'spider') speedScale *= 1.05 + random() * 0.2;
     if (preset.pattern === 'heart' || preset.pattern === 'star' || preset.pattern === 'smiley') speedScale *= 0.94 + random() * 0.06;
-    result.push({
-      ...direction,
-      speedScale,
-      colorT: preset.ghost ? Math.min(0.999, tFromIndex(index, safeCount) * 1.15) : random(),
-      delay: preset.pattern === 'romanCandle' ? index * 0.18 : 0,
-      phase: random() * TAU,
-      seed: random(),
-    });
+    const offset = index * BURST_DIRECTION_STRIDE;
+    target[offset] = direction.x;
+    target[offset + 1] = direction.y;
+    target[offset + 2] = direction.z;
+    target[offset + 3] = speedScale;
+    target[offset + 4] = preset.ghost ? Math.min(0.999, tFromIndex(index, safeCount) * 1.15) : random();
+    target[offset + 5] = preset.pattern === 'romanCandle' ? index * 0.18 : 0;
+    target[offset + 6] = random() * TAU;
+    target[offset + 7] = random();
+  }
+  return safeCount;
+}
+
+export function generateBurstDirections(preset, count = preset.count, seed = hashString(preset.id ?? 'custom')) {
+  const safeCount = Math.max(1, Math.floor(count));
+  const packed = new Float64Array(safeCount * BURST_DIRECTION_STRIDE);
+  writeBurstDirections(preset, safeCount, seed, packed);
+  const result = new Array(safeCount);
+  for (let index = 0; index < safeCount; index += 1) {
+    const offset = index * BURST_DIRECTION_STRIDE;
+    result[index] = {
+      x: packed[offset],
+      y: packed[offset + 1],
+      z: packed[offset + 2],
+      speedScale: packed[offset + 3],
+      colorT: packed[offset + 4],
+      delay: packed[offset + 5],
+      phase: packed[offset + 6],
+      seed: packed[offset + 7],
+    };
   }
   return result;
 }
@@ -237,4 +277,3 @@ export function createSplitDirections(velocity, splitCount = 4, seed = 1) {
     };
   });
 }
-

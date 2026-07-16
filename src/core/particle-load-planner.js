@@ -56,22 +56,30 @@ export function expandLaunchLoadEvents(preset, layoutName = 'single', launchTime
   if (!preset) return [];
   const layout = LAUNCH_LAYOUTS[layoutName] ?? LAUNCH_LAYOUTS.single;
   const events = [];
-  const baseScale = clamp(finite(options.scale, 1), 0.35, 2.2);
+  const launchScale = clamp(finite(options.scale, 1), 0.35, 2.2);
+  const explosionPower = clamp(finite(options.explosionPower, 1), 0.5, 1.8);
+  const burstScale = clamp(launchScale * explosionPower, 0.35, 2.2);
   const baseDelay = Math.max(0, finite(options.delay, 0));
+  const sequenceDelay = clamp(finite(options.sequenceDelay, 0), 0, 0.22);
+  const passCount = options.crossLaunch ? 2 : 1;
+  const passOffset = Math.max(0.04, sequenceDelay * layout.length + 0.04);
 
-  for (const item of layout) {
-    const scheduledTime = Math.max(0, finite(launchTime, 0) + baseDelay + finite(item.delay, 0));
-    if (preset.pattern === 'romanCandle') {
-      const repeat = clamp(Math.round(finite(preset.repeat, 7)), 1, 16);
-      const candlePreset = { ...preset, pattern: 'cometFan', count: 1, multiBreak: 1 };
-      for (let index = 0; index < repeat; index += 1) addBurstEvents(events, candlePreset, scheduledTime + index * 0.34, baseScale);
-      continue;
+  for (let pass = 0; pass < passCount; pass += 1) {
+    for (let itemIndex = 0; itemIndex < layout.length; itemIndex += 1) {
+      const item = layout[itemIndex];
+      const scheduledTime = Math.max(0, finite(launchTime, 0) + baseDelay + finite(item.delay, 0) + itemIndex * sequenceDelay + pass * passOffset);
+      if (preset.pattern === 'romanCandle') {
+        const repeat = clamp(Math.round(finite(preset.repeat, 7)), 1, 16);
+        const candlePreset = { ...preset, pattern: 'cometFan', count: 1, multiBreak: 1 };
+        for (let index = 0; index < repeat; index += 1) addBurstEvents(events, candlePreset, scheduledTime + index * 0.34, burstScale);
+        continue;
+      }
+
+      const burstTime = IMMEDIATE_PATTERNS.has(preset.pattern)
+        ? scheduledTime
+        : scheduledTime + Math.max(0, finite(preset.fuse, 2.1)) * Math.sqrt(launchScale);
+      addBurstEvents(events, preset, burstTime, burstScale);
     }
-
-    const burstTime = IMMEDIATE_PATTERNS.has(preset.pattern)
-      ? scheduledTime
-      : scheduledTime + Math.max(0, finite(preset.fuse, 2.1)) * Math.sqrt(baseScale);
-    addBurstEvents(events, preset, burstTime, baseScale);
   }
   return events;
 }
@@ -170,7 +178,13 @@ export class ParticleLoadPlanner {
       const preset = typeof resolvePreset === 'function' ? resolvePreset(cue.presetId, cue) : resolvePreset?.get?.(cue.presetId);
       if (!preset) continue;
       const scale = clamp(0.72 + finite(cue.energy, 0.7) * 0.35, 0.78, 1.28);
-      events.push(...expandLaunchLoadEvents(preset, cue.layout, Math.max(0, finite(cue.time, 0)), { scale }));
+      const choreography = cue.choreography ?? {};
+      events.push(...expandLaunchLoadEvents(preset, cue.layout, Math.max(0, finite(cue.time, 0)), {
+        scale,
+        explosionPower: choreography.explosionPower,
+        sequenceDelay: choreography.sequenceDelay,
+        crossLaunch: choreography.crossLaunch,
+      }));
     }
     this.showEvents = events.sort((a, b) => a.time - b.time);
     this.rebuildShowPlan();

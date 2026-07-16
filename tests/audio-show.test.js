@@ -1,12 +1,22 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  AudioShowController,
   analyzeChannelData,
   fftMagnitudes,
   generateShowCues,
   getPresetForCue,
   summarizeCueLayouts,
 } from '../src/audio/audio-show.js';
+import { SHOW_CHOREOGRAPHY_PRESETS, createChoreographyPreviewCue } from '../src/audio/show-choreography.js';
+
+test('music playback volume is clamped and can be changed before audio is loaded', () => {
+  const controller = new AudioShowController({ volume: 0.78 });
+  assert.equal(controller.volume, 0.78);
+  assert.equal(controller.setVolume(4), 1);
+  assert.equal(controller.setVolume(-2), 0);
+  assert.equal(controller.setVolume(0.36), 0.36);
+});
 
 function makeClickTrack({ bpm = 120, duration = 12, sampleRate = 8000 } = {}) {
   const samples = new Float32Array(sampleRate * duration);
@@ -60,7 +70,33 @@ test('generated cues are ordered, bounded, and include a finale', () => {
   assert.ok(cues.length > 8);
   assert.ok(cues.some((cue) => cue.band === 'finale'));
   assert.ok(cues.every((cue) => cue.time >= 0 && cue.time <= analysis.duration));
+  assert.ok(cues.every((cue) => Number.isFinite(cue.choreography.launchX) && Number.isFinite(cue.choreography.launchYaw)));
+  assert.ok(cues.every((cue) => cue.choreography.launchPower >= 0.5 && cue.choreography.launchPower <= 1.8));
+  assert.ok(cues.every((cue) => cue.choreography.explosionPower >= 0.5 && cue.choreography.explosionPower <= 1.8));
   assert.deepEqual(cues.map((cue) => cue.time), cues.map((cue) => cue.time).toSorted((a, b) => a - b));
+});
+
+test('music choreography presets create directional, sequential, cross, and color variations', () => {
+  assert.ok(SHOW_CHOREOGRAPHY_PRESETS.length >= 6);
+  const track = makeClickTrack({ duration: 18 });
+  const analysis = analyzeChannelData(track.samples, track.sampleRate, { fftSize: 512, hopSize: 128 });
+  const cues = generateShowCues(analysis, { choreographyPreset: 'crossfire' }, 'cross.wav');
+  assert.ok(cues.some((cue) => Math.abs(cue.choreography.launchX) > 10));
+  assert.ok(cues.some((cue) => Math.abs(cue.choreography.launchYaw) > 0.5));
+  assert.ok(cues.some((cue) => cue.choreography.sequenceDelay > 0.01));
+  assert.ok(cues.some((cue) => cue.choreography.crossLaunch));
+  assert.ok(cues.some((cue) => Math.abs(cue.choreography.colorHue) > 0.01));
+  assert.ok(cues.every((cue) => cue.choreography.directionMode === 'cross'));
+});
+
+test('choreography preview advances through alternate launch positions', () => {
+  const settings = { choreographyPreset: 'crossfire', crossfire: 1 };
+  const left = createChoreographyPreviewCue(settings, 0, () => 0.5);
+  const right = createChoreographyPreviewCue(settings, 1, () => 0.5);
+  assert.ok(left.choreography.launchX < 0);
+  assert.ok(right.choreography.launchX > 0);
+  assert.equal(left.choreography.crossLaunch, true);
+  assert.equal(right.choreography.crossLaunch, true);
 });
 
 test('layout summary expands salvos into actual shell launches', () => {
@@ -68,10 +104,10 @@ test('layout summary expands salvos into actual shell launches', () => {
     summarizeCueLayouts([{ layout: 'single' }, { layout: 'pair' }, { layout: 'fan5' }, { layout: 'finale' }]),
     { single: 1, pair: 2, fan5: 5, finale: 13 },
   );
+  assert.deepEqual(summarizeCueLayouts([{ layout: 'pair', choreography: { crossLaunch: true } }]), { pair: 4 });
 });
 
 test('cue preset lookup falls back safely', () => {
   assert.equal(getPresetForCue({ presetId: 'missing' }).id, 'gold-chrysanthemum');
   assert.equal(getPresetForCue({ presetId: 'heart' }).id, 'heart');
 });
-

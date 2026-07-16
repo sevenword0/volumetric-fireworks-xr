@@ -8,6 +8,12 @@ import {
   createCustomPreset,
 } from '../pyro/presets.js';
 import { generateBurstDirections } from '../pyro/patterns.js';
+import {
+  SHOW_CHOREOGRAPHY_PRESETS,
+  SHOW_DIRECTION_OPTIONS,
+  createChoreographyPreviewCue,
+  getShowChoreographyPreset,
+} from '../audio/show-choreography.js';
 
 const FORMATTERS = {
   'physics.gravity': (value) => `${value.toFixed(2)} g`,
@@ -27,11 +33,21 @@ const FORMATTERS = {
   'quality.bloomThreshold': (value) => value.toFixed(2),
   'quality.saturation': (value) => `${Math.round(value * 100)}%`,
   'quality.motionBlur': (value) => `${Math.round(value * 100)}%`,
+  'quality.focusDistance': (value) => `${Math.round(value)}m`,
+  'quality.focusRange': (value) => `${Math.round(value)}m`,
+  'quality.bokehScale': (value) => `${value.toFixed(2)}×`,
   'sound.volume': (value) => `${Math.round(value * 100)}%`,
+  'show.musicVolume': (value) => `${Math.round(value * 100)}%`,
   'show.sensitivity': (value) => `${Math.round(value * 100)}%`,
   'show.density': (value) => `${Math.round(value * 100)}%`,
   'show.variety': (value) => `${Math.round(value * 100)}%`,
   'show.finale': (value) => `${Math.round(value * 100)}%`,
+  'show.launchPower': (value) => `${Math.round(value * 100)}%`,
+  'show.explosionPower': (value) => `${Math.round(value * 100)}%`,
+  'show.positionSpread': (value) => `${Math.round(value * 100)}%`,
+  'show.sequence': (value) => `${Math.round(value * 100)}%`,
+  'show.crossfire': (value) => `${Math.round(value * 100)}%`,
+  'show.colorVariation': (value) => `${Math.round(value * 100)}%`,
 };
 
 const RANGE_BINDINGS = [
@@ -52,12 +68,31 @@ const RANGE_BINDINGS = [
   ['bloom-threshold', 'quality.bloomThreshold'],
   ['saturation', 'quality.saturation'],
   ['motion-blur', 'quality.motionBlur'],
+  ['focus-distance', 'quality.focusDistance'],
+  ['focus-range', 'quality.focusRange'],
+  ['bokeh-scale', 'quality.bokehScale'],
   ['sound-volume', 'sound.volume'],
+  ['music-volume', 'show.musicVolume'],
   ['beat-sensitivity', 'show.sensitivity', 0.01],
   ['show-density', 'show.density', 0.01],
   ['show-variety', 'show.variety', 0.01],
   ['finale-intensity', 'show.finale', 0.01],
+  ['show-launch-power', 'show.launchPower', 0.01],
+  ['show-explosion-power', 'show.explosionPower', 0.01],
+  ['show-position-spread', 'show.positionSpread', 0.01],
+  ['show-sequence', 'show.sequence', 0.01],
+  ['show-crossfire', 'show.crossfire', 0.01],
+  ['show-color-variation', 'show.colorVariation', 0.01],
 ];
+
+const SHOW_CHOREOGRAPHY_PATHS = new Set([
+  'show.launchPower',
+  'show.explosionPower',
+  'show.positionSpread',
+  'show.sequence',
+  'show.crossfire',
+  'show.colorVariation',
+]);
 
 function getPath(object, path) {
   return path.split('.').reduce((value, key) => value?.[key], object);
@@ -92,11 +127,14 @@ export class AppUI extends EventTarget {
     this.loadWindows = [];
     this.timelinePlayhead = 0;
     this.xrAvailable = false;
+    this.applyingShowPreset = false;
+    this.showPreviewIndex = 0;
     this.elements = {};
     this.cacheElements();
     this.populateSelects();
     this.bindNavigation();
     this.bindRanges();
+    this.bindShowChoreography();
     this.bindComposer();
     this.bindAudio();
     this.bindWorld();
@@ -121,8 +159,9 @@ export class AppUI extends EventTarget {
       'save-design', 'launch-design', 'shell-preview', 'custom-code', 'custom-title',
       'audio-drop', 'audio-input', 'audio-info', 'audio-name', 'audio-meta', 'audio-remove', 'audio-timeline', 'music-bpm', 'music-cues', 'music-length',
       'music-loads',
-      'generate-show', 'play-show', 'environment-select', 'environment-input', 'floor-mode', 'quality-select', 'particle-blend',
-      'bloom-toggle', 'shadow-toggle', 'adaptive-toggle', 'predictive-load-toggle', 'sound-toggle', 'sound-status',
+      'show-choreography', 'show-direction', 'show-choreography-summary', 'preview-show',
+      'generate-show', 'play-show', 'environment-select', 'environment-input', 'camera-view', 'floor-mode', 'quality-select', 'particle-blend',
+      'bloom-toggle', 'dof-toggle', 'shadow-toggle', 'adaptive-toggle', 'predictive-load-toggle', 'sound-toggle', 'sound-status',
     ];
     for (const id of ids) this.elements[id.replaceAll('-', '')] = document.getElementById(id);
   }
@@ -135,10 +174,17 @@ export class AppUI extends EventTarget {
     populate(this.elements.designstar, STAR_OPTIONS);
     populate(this.elements.designpistil, PISTIL_OPTIONS);
     populate(this.elements.designpalette, PALETTE_OPTIONS);
+    populate(this.elements.showchoreography, [
+      ...SHOW_CHOREOGRAPHY_PRESETS.map((profile) => [profile.id, profile.label]),
+      ['custom', '사용자 조정'],
+    ]);
+    populate(this.elements.showdirection, SHOW_DIRECTION_OPTIONS);
     this.elements.designpattern.value = 'peony';
     this.elements.designstar.value = 'comet';
     this.elements.designpistil.value = 'single';
     this.elements.designpalette.value = 'aurora';
+    this.elements.showchoreography.value = this.state.show.choreographyPreset;
+    this.elements.showdirection.value = this.state.show.directionMode;
   }
 
   bindNavigation() {
@@ -212,14 +258,90 @@ export class AppUI extends EventTarget {
       const update = () => {
         const value = Number(input.value) * scale;
         this.store.set(path, value);
+        if (SHOW_CHOREOGRAPHY_PATHS.has(path) && !this.applyingShowPreset) {
+          this.store.set('show.choreographyPreset', 'custom');
+          this.elements.showchoreography.value = 'custom';
+        }
         if (output) output.textContent = (FORMATTERS[path] ?? String)(value);
         fillRange(input);
+        if (path.startsWith('show.')) this.updateShowChoreographySummary();
         this.dispatchEvent(new CustomEvent('statechange', { detail: { path, value } }));
       };
       input.addEventListener('input', update);
       if (output) output.textContent = (FORMATTERS[path] ?? String)(getPath(this.state, path));
       fillRange(input);
     }
+  }
+
+  bindShowChoreography() {
+    this.elements.showchoreography.addEventListener('change', () => {
+      const id = this.elements.showchoreography.value;
+      if (id === 'custom') {
+        this.store.set('show.choreographyPreset', 'custom');
+        this.updateShowChoreographySummary();
+        return;
+      }
+      const profile = getShowChoreographyPreset(id);
+      this.applyingShowPreset = true;
+      this.store.set('show.choreographyPreset', profile.id);
+      this.store.set('show.directionMode', profile.directionMode);
+      this.elements.showdirection.value = profile.directionMode;
+      const values = {
+        'show-launch-power': profile.launchPower,
+        'show-explosion-power': profile.explosionPower,
+        'show-position-spread': profile.positionSpread,
+        'show-sequence': profile.sequence,
+        'show-crossfire': profile.crossfire,
+        'show-color-variation': profile.colorVariation,
+      };
+      for (const [idKey, value] of Object.entries(values)) {
+        const input = document.getElementById(idKey);
+        input.value = value * 100;
+        input.dispatchEvent(new Event('input'));
+      }
+      this.applyingShowPreset = false;
+      this.updateShowChoreographySummary();
+      this.toast(`${profile.label} 연출값을 적용했습니다`);
+    });
+
+    this.elements.showdirection.addEventListener('change', () => {
+      const value = this.elements.showdirection.value;
+      this.store.set('show.directionMode', value);
+      this.store.set('show.choreographyPreset', 'custom');
+      this.elements.showchoreography.value = 'custom';
+      this.updateShowChoreographySummary();
+      this.dispatchEvent(new CustomEvent('statechange', { detail: { path: 'show.directionMode', value } }));
+    });
+
+    this.elements.previewshow.addEventListener('click', () => {
+      const cue = createChoreographyPreviewCue(this.state.show, this.showPreviewIndex);
+      this.showPreviewIndex += 1;
+      const choreography = cue.choreography;
+      this.elements.showchoreographysummary.dataset.previewX = String(choreography.launchX);
+      this.elements.showchoreographysummary.dataset.previewYaw = String(choreography.launchYaw);
+      this.elements.showchoreographysummary.dataset.previewCross = String(choreography.crossLaunch);
+      this.elements.showchoreographysummary.dataset.previewHue = String(choreography.colorHue);
+      this.dispatchEvent(new CustomEvent('showpreview', { detail: { cue } }));
+    });
+
+    this.updateShowChoreographySummary();
+  }
+
+  updateShowChoreographySummary() {
+    const summary = this.elements.showchoreographysummary;
+    if (!summary) return;
+    const profile = SHOW_CHOREOGRAPHY_PRESETS.find((entry) => entry.id === this.state.show.choreographyPreset);
+    const directionLabel = SHOW_DIRECTION_OPTIONS.find(([id]) => id === this.state.show.directionMode)?.[1] ?? this.state.show.directionMode;
+    const profileLabel = profile?.label ?? '사용자 조정';
+    summary.textContent = `${profileLabel} · ${directionLabel} · 발사 ${Math.round(this.state.show.launchPower * 100)}% · 폭발 ${Math.round(this.state.show.explosionPower * 100)}% · 순차 ${Math.round(this.state.show.sequence * 100)}% · 교차 ${Math.round(this.state.show.crossfire * 100)}% · 컬러 ${Math.round(this.state.show.colorVariation * 100)}%`;
+    summary.dataset.preset = this.state.show.choreographyPreset;
+    summary.dataset.direction = this.state.show.directionMode;
+    summary.dataset.launchPower = String(this.state.show.launchPower);
+    summary.dataset.explosionPower = String(this.state.show.explosionPower);
+    summary.dataset.positionSpread = String(this.state.show.positionSpread);
+    summary.dataset.sequence = String(this.state.show.sequence);
+    summary.dataset.crossfire = String(this.state.show.crossfire);
+    summary.dataset.colorVariation = String(this.state.show.colorVariation);
   }
 
   bindComposer() {
@@ -376,6 +498,13 @@ export class AppUI extends EventTarget {
     if (!this.analysis) return [];
     this.cues = this.audio.generate(this.state.show);
     this.elements.musiccues.textContent = String(this.cues.length);
+    const crossCues = this.cues.filter((cue) => cue.choreography?.crossLaunch).length;
+    const summary = this.elements.showchoreographysummary;
+    summary.dataset.generatedCues = String(this.cues.length);
+    summary.dataset.generatedCrossCues = String(crossCues);
+    summary.dataset.generatedSequentialCues = String(this.cues.filter((cue) => (cue.choreography?.sequenceDelay ?? 0) > 0.001).length);
+    summary.dataset.generatedColorCues = String(this.cues.filter((cue) => Math.abs(cue.choreography?.colorHue ?? 0) > 0.001).length);
+    summary.title = `생성 결과: 전체 ${this.cues.length}큐 · 교차 ${crossCues}큐`;
     this.elements.playshow.disabled = this.cues.length === 0;
     this.drawTimeline();
     this.toast(`${this.cues.length}개 큐로 자동 불꽃 쇼를 만들었습니다`);
@@ -467,6 +596,13 @@ export class AppUI extends EventTarget {
       this.dispatchEvent(new CustomEvent('environmentfile', { detail: { file } }));
     });
 
+    this.elements.cameraview.querySelectorAll('button').forEach((button) => {
+      button.addEventListener('click', () => {
+        this.elements.cameraview.querySelectorAll('button').forEach((candidate) => candidate.classList.toggle('active', candidate === button));
+        this.dispatchEvent(new CustomEvent('cameraview', { detail: { value: button.dataset.view } }));
+      });
+    });
+
     this.elements.floormode.querySelectorAll('button').forEach((button) => {
       button.addEventListener('click', () => {
         const value = button.dataset.value;
@@ -488,7 +624,7 @@ export class AppUI extends EventTarget {
       this.store.set('quality.particleBlend', value);
       this.dispatchEvent(new CustomEvent('statechange', { detail: { path: 'quality.particleBlend', value } }));
     });
-    for (const [element, key] of [[this.elements.bloomtoggle, 'bloom'], [this.elements.shadowtoggle, 'shadows'], [this.elements.adaptivetoggle, 'adaptive'], [this.elements.predictiveloadtoggle, 'predictiveLoad']]) {
+    for (const [element, key] of [[this.elements.bloomtoggle, 'bloom'], [this.elements.doftoggle, 'depthOfField'], [this.elements.shadowtoggle, 'shadows'], [this.elements.adaptivetoggle, 'adaptive'], [this.elements.predictiveloadtoggle, 'predictiveLoad']]) {
       element.checked = this.state.quality[key];
       element.addEventListener('change', () => {
         this.store.set(`quality.${key}`, element.checked);
@@ -599,11 +735,20 @@ export class AppUI extends EventTarget {
     return next;
   }
 
+  nextShowChoreography() {
+    const ids = SHOW_CHOREOGRAPHY_PRESETS.map((profile) => profile.id);
+    const currentIndex = ids.indexOf(this.state.show.choreographyPreset);
+    const nextId = ids[(currentIndex + 1 + ids.length) % ids.length];
+    this.elements.showchoreography.value = nextId;
+    this.elements.showchoreography.dispatchEvent(new Event('change'));
+    return getShowChoreographyPreset(nextId);
+  }
+
   setTool(tool) {
     this.store.set('tool', tool);
     document.querySelectorAll('.tool-toggle button').forEach((button) => button.classList.toggle('active', button.dataset.tool === tool));
     const hints = {
-      camera: '드래그 회전 · 휠 줌 · SPACE 발사',
+      camera: '드래그 회전 · 우클릭 팬 이동 · 휠 원거리 줌 · SPACE 발사',
       gust: '드래그로 공기를 밀어 불꽃·연기 흐름 바꾸기',
       vortex: '드래그로 보텍스를 만들어 입자와 볼륨 회전시키기',
       repel: '클릭·드래그 충돌 구로 불꽃을 밀어내기',
@@ -621,11 +766,15 @@ export class AppUI extends EventTarget {
   syncState() {
     this.setTool(this.state.tool);
     this.elements.launchlayout.value = this.state.launchLayout;
+    this.elements.showchoreography.value = this.state.show.choreographyPreset;
+    this.elements.showdirection.value = this.state.show.directionMode;
+    this.updateShowChoreographySummary();
     this.elements.environmentselect.value = this.state.world.environment;
     this.elements.floormode.querySelectorAll('button').forEach((button) => button.classList.toggle('active', button.dataset.value === this.state.world.floor));
     this.elements.qualityselect.value = this.state.quality.preset;
     this.elements.particleblend.value = this.state.quality.particleBlend;
     this.elements.bloomtoggle.checked = this.state.quality.bloom;
+    this.elements.doftoggle.checked = this.state.quality.depthOfField;
     this.elements.shadowtoggle.checked = this.state.quality.shadows;
     this.elements.adaptivetoggle.checked = this.state.quality.adaptive;
     this.elements.predictiveloadtoggle.checked = this.state.quality.predictiveLoad;
@@ -648,15 +797,27 @@ export class AppUI extends EventTarget {
     if (label) this.elements.xrbutton.querySelector('span:last-child').textContent = label;
   }
 
-  updateTelemetry({ fps, particles, volume }) {
+  updateTelemetry({ fps, particles, rendered = particles, motionVectors = rendered, renderLimit = rendered, volume, volumePerformance = null }) {
     this.elements.fpsreadout.textContent = Number.isFinite(fps) ? String(Math.round(fps)) : '--';
     this.elements.particlereadout.textContent = particles > 9999 ? `${(particles / 1000).toFixed(1)}K` : String(particles);
+    this.elements.particlereadout.dataset.active = String(particles);
+    this.elements.particlereadout.dataset.rendered = String(rendered);
+    this.elements.particlereadout.dataset.motionVectors = String(motionVectors);
+    this.elements.particlereadout.dataset.effectiveRenderLimit = String(renderLimit);
     if (volume) this.elements.volumereadout.textContent = volume;
+    if (volumePerformance) {
+      this.elements.volumereadout.dataset.steps = String(volumePerformance.steps);
+      this.elements.volumereadout.dataset.shadowSteps = String(volumePerformance.shadowSteps);
+      this.elements.volumereadout.dataset.updateRate = String(volumePerformance.updateRate);
+      this.elements.volumereadout.dataset.slicesPerFrame = String(volumePerformance.slicesPerFrame);
+    }
   }
 
   setPerformanceGuard(state) {
     const container = this.elements.particlereadout.parentElement;
     container.dataset.guard = state.name;
+    container.dataset.postProcessing = state.postProcessing ? 'on' : 'off';
+    container.dataset.renderLimit = String(state.renderLimit ?? '');
     const forecastLed = state.forecastLevel > 0 && state.forecastRatio > state.loadRatio + 0.05;
     container.title = forecastLed
       ? `사전 부하 예측 ${state.forecastLevel}단계 · 약 ${state.forecastParticles.toLocaleString()}개 구간 선제 최적화`

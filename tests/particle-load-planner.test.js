@@ -22,6 +22,21 @@ test('immediate ground effects are forecast at launch time', () => {
   assert.equal(events[0].time, 3.75);
 });
 
+test('cross salvos, sequential delay, and explosion power are included in load planning', () => {
+  const normal = expandLaunchLoadEvents(brocade, 'pair', 2, { scale: 1 });
+  const choreographed = expandLaunchLoadEvents(brocade, 'pair', 2, {
+    scale: 1,
+    explosionPower: 1.4,
+    sequenceDelay: 0.1,
+    crossLaunch: true,
+  });
+  assert.equal(normal.length, 2);
+  assert.equal(choreographed.length, 4);
+  assert.ok(choreographed[1].time > choreographed[0].time);
+  assert.ok(choreographed[2].time > choreographed[1].time);
+  assert.ok(choreographed[0].load > normal[0].load);
+});
+
 test('music cues are precomputed into high-load timeline windows', () => {
   const planner = new ParticleLoadPlanner({ capacity: 4000 });
   const plan = planner.planShow([
@@ -36,6 +51,21 @@ test('music cues are precomputed into high-load timeline windows', () => {
   assert.equal(forecast.level, 3);
   assert.equal(forecast.source, 'show');
   assert.ok(forecast.peakIn <= 2.4);
+});
+
+test('music cue choreography doubles mirrored salvo events before playback', () => {
+  const planner = new ParticleLoadPlanner({ capacity: 8000 });
+  const plan = planner.planShow([
+    {
+      time: 0,
+      presetId: brocade.id,
+      layout: 'fan5',
+      energy: 1,
+      choreography: { explosionPower: 1.25, sequenceDelay: 0.08, crossLaunch: true },
+    },
+  ], (presetId) => FIREWORK_PRESETS.find((preset) => preset.id === presetId));
+  assert.equal(plan.eventCount, 10);
+  assert.ok(planner.showEvents[5].time > planner.showEvents[4].time);
 });
 
 test('manual launch plan protects the fuse window and expires afterward', () => {

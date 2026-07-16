@@ -5,7 +5,7 @@ const root = process.cwd();
 const required = [
   'index.html', 'package.json', 'vite.config.js', 'public/.nojekyll',
   'src/main.js', 'src/style.css', 'src/core/particle-load-guard.js', 'src/core/particle-load-planner.js', 'src/pyro/presets.js', 'src/pyro/patterns.js',
-  'src/pyro/firework-engine.js', 'src/volume/fluid-volume.js', 'src/audio/audio-show.js', 'src/audio/firework-sound.js',
+  'src/pyro/firework-engine.js', 'src/volume/fluid-volume.js', 'src/audio/audio-show.js', 'src/audio/show-choreography.js', 'src/audio/firework-sound.js',
   'src/ui/app-ui.js', 'src/ui/xr-cube-ui.js', 'src/scene/world.js',
   '.github/workflows/pages.yml',
 ];
@@ -40,7 +40,7 @@ for (const file of files) {
 }
 
 const html = await readFile(path.join(root, 'index.html'), 'utf8');
-for (const marker of ['id="stage"', 'id="welcome-dialog"', 'id="audio-input"', 'id="xr-button"', 'id="launch-button"', 'id="firework-brightness"', 'id="predictive-load-toggle"']) {
+for (const marker of ['id="stage"', 'id="welcome-dialog"', 'id="audio-input"', 'id="xr-button"', 'id="launch-button"', 'id="camera-view"', 'id="firework-brightness"', 'id="dof-toggle"', 'id="music-volume"', 'id="show-choreography"', 'id="show-direction"', 'id="preview-show"', 'id="show-launch-power"', 'id="show-explosion-power"', 'id="show-sequence"', 'id="show-crossfire"', 'id="show-color-variation"', 'id="predictive-load-toggle"']) {
   if (!html.includes(marker)) throw new Error(`index.html missing ${marker}`);
 }
 

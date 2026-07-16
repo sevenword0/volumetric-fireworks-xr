@@ -1,6 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createSplitDirections, generateBurstDirections, hashString, mulberry32 } from '../src/pyro/patterns.js';
+import {
+  BURST_DIRECTION_STRIDE,
+  createSplitDirections,
+  generateBurstDirections,
+  hashString,
+  mulberry32,
+  writeBurstDirections,
+} from '../src/pyro/patterns.js';
 
 const PATTERNS = [
   'peony', 'chrysanthemum', 'dahlia', 'ring', 'doubleRing', 'saturn', 'palm', 'willow',
@@ -48,6 +55,26 @@ test('same pattern and seed produces byte-for-byte repeatable descriptors', () =
   );
 });
 
+test('packed burst directions match the public descriptor API without per-star objects', () => {
+  const preset = makePreset('chrysanthemum');
+  const descriptors = generateBurstDirections(preset, 64, 321);
+  const packed = new Float64Array(descriptors.length * BURST_DIRECTION_STRIDE);
+  assert.equal(writeBurstDirections(preset, descriptors.length, 321, packed), descriptors.length);
+  for (let index = 0; index < descriptors.length; index += 1) {
+    const offset = index * BURST_DIRECTION_STRIDE;
+    assert.deepEqual(Array.from(packed.slice(offset, offset + BURST_DIRECTION_STRIDE)), [
+      descriptors[index].x,
+      descriptors[index].y,
+      descriptors[index].z,
+      descriptors[index].speedScale,
+      descriptors[index].colorT,
+      descriptors[index].delay,
+      descriptors[index].phase,
+      descriptors[index].seed,
+    ]);
+  }
+});
+
 test('ring, heart, and star stay close to their design plane', () => {
   for (const pattern of ['ring', 'heart', 'star']) {
     const directions = generateBurstDirections(makePreset(pattern), 180, 44);
@@ -79,4 +106,3 @@ test('split directions respect requested count and are deterministic', () => {
 test('split always creates at least two children', () => {
   assert.equal(createSplitDirections({ x: 0, y: 1, z: 0 }, 0, 1).length, 2);
 });
-

@@ -1,7 +1,12 @@
 import { FIREWORK_PRESETS, LAUNCH_LAYOUTS } from '../pyro/presets.js';
 import { hashString, mulberry32 } from '../pyro/patterns.js';
+import { applyShowChoreography } from './show-choreography.js';
 
 const TWO_PI = Math.PI * 2;
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
 
 function nextPowerOfTwo(value) {
   return 2 ** Math.ceil(Math.log2(Math.max(2, value)));
@@ -275,16 +280,19 @@ export function generateShowCues(analysis, settings = {}, sourceName = 'music') 
     });
   }
 
-  return cues
+  const orderedCues = cues
     .filter((cue) => cue.time <= analysis.duration)
     .sort((a, b) => a.time - b.time)
     .map((cue, index) => ({ ...cue, id: `cue-${index + 1}` }));
+  const choreographyRandom = mulberry32(hashString(`${sourceName}:${analysis.duration.toFixed(3)}:${analysis.bpm}:choreography`));
+  return applyShowChoreography(orderedCues, settings, choreographyRandom);
 }
 
 export class AudioShowController extends EventTarget {
-  constructor() {
+  constructor(options = {}) {
     super();
     this.context = null;
+    this.master = null;
     this.buffer = null;
     this.analysis = null;
     this.cues = [];
@@ -293,11 +301,17 @@ export class AudioShowController extends EventTarget {
     this.offset = 0;
     this.playing = false;
     this.fileName = '';
+    this.volume = clamp(Number(options.volume ?? 1) || 0, 0, 1);
   }
 
   async load(file) {
     this.stop();
     this.context ??= new AudioContext({ latencyHint: 'interactive' });
+    if (!this.master) {
+      this.master = this.context.createGain();
+      this.master.gain.value = this.volume;
+      this.master.connect(this.context.destination);
+    }
     const bytes = await file.arrayBuffer();
     this.buffer = await this.context.decodeAudioData(bytes.slice(0));
     this.fileName = file.name;
@@ -323,7 +337,7 @@ export class AudioShowController extends EventTarget {
     await this.context.resume();
     this.source = this.context.createBufferSource();
     this.source.buffer = this.buffer;
-    this.source.connect(this.context.destination);
+    this.source.connect(this.master ?? this.context.destination);
     this.startedAt = this.context.currentTime - this.offset;
     this.source.start(0, this.offset);
     this.source.onended = () => {
@@ -361,19 +375,34 @@ export class AudioShowController extends EventTarget {
     return Math.min(this.buffer?.duration ?? Infinity, this.context.currentTime - this.startedAt);
   }
 
+  setVolume(value) {
+    this.volume = clamp(Number(value) || 0, 0, 1);
+    if (this.master?.gain) {
+      const now = this.context?.currentTime ?? 0;
+      this.master.gain.cancelScheduledValues?.(now);
+      if (typeof this.master.gain.setTargetAtTime === 'function') this.master.gain.setTargetAtTime(this.volume, now, 0.015);
+      else this.master.gain.value = this.volume;
+    }
+    return this.volume;
+  }
+
   dispose() {
     this.stop();
+    this.master?.disconnect();
+    this.master = null;
     this.context?.close();
   }
 }
 
 export function summarizeCueLayouts(cues) {
   const summary = {};
-  for (const cue of cues) summary[cue.layout] = (summary[cue.layout] ?? 0) + (LAUNCH_LAYOUTS[cue.layout]?.length ?? 1);
+  for (const cue of cues) {
+    const multiplier = cue.choreography?.crossLaunch ? 2 : 1;
+    summary[cue.layout] = (summary[cue.layout] ?? 0) + (LAUNCH_LAYOUTS[cue.layout]?.length ?? 1) * multiplier;
+  }
   return summary;
 }
 
 export function getPresetForCue(cue) {
   return FIREWORK_PRESETS.find((preset) => preset.id === cue.presetId) ?? FIREWORK_PRESETS[0];
 }
-

@@ -56,7 +56,7 @@ export class XRCubeUI extends EventTarget {
         accent: '#a58bff',
         rows: [
           { label: '음악 쇼', value: () => this.callbacks.isShowPlaying?.() ? 'PAUSE' : 'PLAY', action: () => this.callbacks.toggleShow?.() },
-          { label: '발사 배치', value: () => this.state.launchLayout.toUpperCase(), action: () => this.callbacks.nextLayout?.() },
+          { label: '연출 프리셋', value: () => this.callbacks.getShowChoreographyName?.() ?? 'BALANCED', action: () => this.callbacks.nextShowChoreography?.() },
           { label: '큐 수', value: () => `${this.callbacks.getCueCount?.() ?? 0}`, action: () => this.callbacks.generateShow?.() },
           { label: '전체 지우기', value: () => 'CLEAR', action: () => this.callbacks.clear?.() },
         ],
