@@ -1,5 +1,4 @@
 import {
-  DEFAULT_SHOW_CHOREOGRAPHY,
   SHOW_CHOREOGRAPHY_PRESET_IDS,
   SHOW_DIRECTION_IDS,
   getShowChoreographyPreset,
@@ -7,7 +6,7 @@ import {
 import { DEFAULT_OPTIMIZATION_TARGETS } from './particle-load-guard.js';
 import { MAX_PARTICLE_AFTERIMAGE, MIN_PARTICLE_AFTERIMAGE } from './particle-afterimage.js';
 import { MAX_BOKEH_GAMMA, MIN_BOKEH_GAMMA } from './bokeh-response.js';
-import { DEFAULT_BOKEH_SHAPE, sanitizeBokehShape } from './bokeh-shapes.js';
+import { sanitizeBokehShape } from './bokeh-shapes.js';
 import { MAX_RING_PARTICLE_SCALE, MIN_RING_PARTICLE_SCALE } from './ring-particles.js';
 import { MAX_TRAIL_PARTICLE_SCALE, MIN_TRAIL_PARTICLE_SCALE } from './trail-particles.js';
 
@@ -28,63 +27,71 @@ export const MAX_CAMERA_FOV = 110;
 export const MIN_BOKEH_SAMPLES = 5;
 export const MAX_BOKEH_SAMPLES = 25;
 
+const DEFAULT_SHOW_PROFILE = getShowChoreographyPreset('grand-finale');
+
 export const DEFAULT_STATE = Object.freeze({
   selectedPresetId: 'gold-chrysanthemum',
-  launchLayout: 'single',
+  launchLayout: 'finale',
   launch: {
     centerX: 0,
-    positionRange: 1,
-    initialPower: 1,
+    positionRange: 2.5,
+    initialPower: 2,
   },
   tool: 'camera',
   camera: {
-    fov: 48,
+    fov: 80,
   },
   physics: {
-    gravity: 1,
-    drag: BASE_AIR_DRAG,
-    particleLifetime: 1,
+    gravity: 0.1,
+    drag: 2.2355,
+    particleLifetime: 2.45,
     ringParticleScale: 1,
-    trailParticleScale: 1,
-    windX: 1.6,
-    windZ: 0.3,
-    vortex: 0.42,
+    trailParticleScale: 2.65,
+    windX: 0,
+    windZ: 0.1,
+    vortex: 0,
   },
   volume: {
-    smoke: 0.7,
-    buoyancy: 1.1,
-    scattering: 1.25,
-    shadow: 1.6,
+    smoke: 0,
+    buoyancy: 2.05,
+    scattering: 3,
+    shadow: 0,
   },
   world: {
     environment: 'lake',
     floor: 'water',
     floorGrid: true,
-    waterRoughness: 0.22,
-    reflection: 0.72,
+    waterRoughness: 0.77,
+    reflection: 0.68,
   },
   quality: {
-    preset: 'auto',
-    fireworkBrightness: 1,
+    preset: 'high',
+    fireworkBrightness: 0.6,
     bloom: true,
-    bloomStrength: 0.55,
-    bloomRadius: 0.58,
-    bloomThreshold: 0.78,
-    saturation: 1,
-    motionBlur: 0.62,
-    particleAfterimage: 0.42,
+    bloomStrength: 0.8,
+    bloomRadius: 0.84,
+    bloomThreshold: 0.16,
+    saturation: 1.15,
+    motionBlur: 0,
+    particleAfterimage: 0.8,
     depthOfField: true,
-    focusDistance: 70,
-    focusRange: 26,
-    bokehScale: 0.65,
-    bokehSamples: 13,
-    bokehGamma: 1,
-    bokehShape: DEFAULT_BOKEH_SHAPE,
+    focusDistance: 85,
+    focusRange: 160,
+    bokehScale: 1.25,
+    bokehSamples: 25,
+    bokehGamma: 2.25,
+    bokehShape: 'hexagon',
     particleBlend: 'additive',
-    shadows: true,
-    adaptive: true,
+    shadows: false,
+    adaptive: false,
     predictiveLoad: true,
-    autoTargets: { ...DEFAULT_OPTIMIZATION_TARGETS },
+    autoTargets: {
+      particles: true,
+      resolution: true,
+      volume: true,
+      lighting: true,
+      postProcessing: false,
+    },
   },
   sound: {
     enabled: true,
@@ -96,14 +103,14 @@ export const DEFAULT_STATE = Object.freeze({
     density: 0.62,
     variety: 0.78,
     finale: 0.85,
-    choreographyPreset: DEFAULT_SHOW_CHOREOGRAPHY.id,
-    directionMode: DEFAULT_SHOW_CHOREOGRAPHY.directionMode,
-    launchPower: DEFAULT_SHOW_CHOREOGRAPHY.launchPower,
-    explosionPower: DEFAULT_SHOW_CHOREOGRAPHY.explosionPower,
-    positionSpread: DEFAULT_SHOW_CHOREOGRAPHY.positionSpread,
-    sequence: DEFAULT_SHOW_CHOREOGRAPHY.sequence,
-    crossfire: DEFAULT_SHOW_CHOREOGRAPHY.crossfire,
-    colorVariation: DEFAULT_SHOW_CHOREOGRAPHY.colorVariation,
+    choreographyPreset: DEFAULT_SHOW_PROFILE.id,
+    directionMode: DEFAULT_SHOW_PROFILE.directionMode,
+    launchPower: DEFAULT_SHOW_PROFILE.launchPower,
+    explosionPower: DEFAULT_SHOW_PROFILE.explosionPower,
+    positionSpread: DEFAULT_SHOW_PROFILE.positionSpread,
+    sequence: DEFAULT_SHOW_PROFILE.sequence,
+    crossfire: DEFAULT_SHOW_PROFILE.crossfire,
+    colorVariation: DEFAULT_SHOW_PROFILE.colorVariation,
   },
 });
 
@@ -127,8 +134,13 @@ function allowed(value, values, fallback) {
   return values.includes(value) ? value : fallback;
 }
 
+function boolean(value, fallback) {
+  return typeof value === 'boolean' ? value : fallback;
+}
+
 export function sanitizeState(candidate = {}) {
-  const showProfile = getShowChoreographyPreset(candidate.show?.choreographyPreset);
+  const choreographyPreset = allowed(candidate.show?.choreographyPreset, [...SHOW_CHOREOGRAPHY_PRESET_IDS, 'custom'], DEFAULT_STATE.show.choreographyPreset);
+  const showProfile = getShowChoreographyPreset(choreographyPreset);
   return {
     selectedPresetId: typeof candidate.selectedPresetId === 'string' ? candidate.selectedPresetId : DEFAULT_STATE.selectedPresetId,
     launchLayout: allowed(candidate.launchLayout, ['single', 'pair', 'fan5', 'arc7', 'horizon9', 'circle8', 'finale'], DEFAULT_STATE.launchLayout),
@@ -160,35 +172,35 @@ export function sanitizeState(candidate = {}) {
     world: {
       environment: allowed(candidate.world?.environment, ['lake', 'city', 'alpine', 'cosmic', 'custom'], DEFAULT_STATE.world.environment),
       floor: allowed(candidate.world?.floor, ['matte', 'water', 'none'], DEFAULT_STATE.world.floor),
-      floorGrid: candidate.world?.floorGrid !== false,
+      floorGrid: boolean(candidate.world?.floorGrid, DEFAULT_STATE.world.floorGrid),
       waterRoughness: finite(candidate.world?.waterRoughness, DEFAULT_STATE.world.waterRoughness, 0, 1),
       reflection: finite(candidate.world?.reflection, DEFAULT_STATE.world.reflection, 0, 1.2),
     },
     quality: {
       preset: allowed(candidate.quality?.preset, ['auto', 'high', 'medium', 'low'], DEFAULT_STATE.quality.preset),
       fireworkBrightness: finite(candidate.quality?.fireworkBrightness, DEFAULT_STATE.quality.fireworkBrightness, 0.1, 3),
-      bloom: candidate.quality?.bloom !== false,
+      bloom: boolean(candidate.quality?.bloom, DEFAULT_STATE.quality.bloom),
       bloomStrength: finite(candidate.quality?.bloomStrength, DEFAULT_STATE.quality.bloomStrength, 0, 3),
       bloomRadius: finite(candidate.quality?.bloomRadius, DEFAULT_STATE.quality.bloomRadius, 0, 1),
       bloomThreshold: finite(candidate.quality?.bloomThreshold, DEFAULT_STATE.quality.bloomThreshold, 0, 2),
       saturation: finite(candidate.quality?.saturation, DEFAULT_STATE.quality.saturation, 0, 2),
       motionBlur: finite(candidate.quality?.motionBlur, DEFAULT_STATE.quality.motionBlur, 0, 3),
       particleAfterimage: finite(candidate.quality?.particleAfterimage, DEFAULT_STATE.quality.particleAfterimage, MIN_PARTICLE_AFTERIMAGE, MAX_PARTICLE_AFTERIMAGE),
-      depthOfField: candidate.quality?.depthOfField !== false,
+      depthOfField: boolean(candidate.quality?.depthOfField, DEFAULT_STATE.quality.depthOfField),
       focusDistance: finite(candidate.quality?.focusDistance, DEFAULT_STATE.quality.focusDistance, 2, 300),
       focusRange: finite(candidate.quality?.focusRange, DEFAULT_STATE.quality.focusRange, 1, 160),
       bokehScale: finite(candidate.quality?.bokehScale, DEFAULT_STATE.quality.bokehScale, 0, 2),
       bokehSamples: integer(candidate.quality?.bokehSamples, DEFAULT_STATE.quality.bokehSamples, MIN_BOKEH_SAMPLES, MAX_BOKEH_SAMPLES),
       bokehGamma: finite(candidate.quality?.bokehGamma, DEFAULT_STATE.quality.bokehGamma, MIN_BOKEH_GAMMA, MAX_BOKEH_GAMMA),
-      bokehShape: sanitizeBokehShape(candidate.quality?.bokehShape),
+      bokehShape: sanitizeBokehShape(candidate.quality?.bokehShape, DEFAULT_STATE.quality.bokehShape),
       particleBlend: allowed(candidate.quality?.particleBlend, ['additive', 'screen', 'alpha'], DEFAULT_STATE.quality.particleBlend),
-      shadows: candidate.quality?.shadows !== false,
-      adaptive: candidate.quality?.adaptive !== false,
-      predictiveLoad: candidate.quality?.predictiveLoad !== false,
-      autoTargets: Object.fromEntries(Object.keys(DEFAULT_OPTIMIZATION_TARGETS).map((key) => [key, candidate.quality?.autoTargets?.[key] !== false])),
+      shadows: boolean(candidate.quality?.shadows, DEFAULT_STATE.quality.shadows),
+      adaptive: boolean(candidate.quality?.adaptive, DEFAULT_STATE.quality.adaptive),
+      predictiveLoad: boolean(candidate.quality?.predictiveLoad, DEFAULT_STATE.quality.predictiveLoad),
+      autoTargets: Object.fromEntries(Object.keys(DEFAULT_OPTIMIZATION_TARGETS).map((key) => [key, boolean(candidate.quality?.autoTargets?.[key], DEFAULT_STATE.quality.autoTargets[key])])),
     },
     sound: {
-      enabled: candidate.sound?.enabled !== false,
+      enabled: boolean(candidate.sound?.enabled, DEFAULT_STATE.sound.enabled),
       volume: finite(candidate.sound?.volume, DEFAULT_STATE.sound.volume, 0, 1),
     },
     show: {
@@ -197,7 +209,7 @@ export function sanitizeState(candidate = {}) {
       density: finite(candidate.show?.density, DEFAULT_STATE.show.density, 0.1, 1),
       variety: finite(candidate.show?.variety, DEFAULT_STATE.show.variety, 0, 1),
       finale: finite(candidate.show?.finale, DEFAULT_STATE.show.finale, 0, 1),
-      choreographyPreset: allowed(candidate.show?.choreographyPreset, [...SHOW_CHOREOGRAPHY_PRESET_IDS, 'custom'], DEFAULT_STATE.show.choreographyPreset),
+      choreographyPreset,
       directionMode: allowed(candidate.show?.directionMode, SHOW_DIRECTION_IDS, showProfile.directionMode),
       launchPower: finite(candidate.show?.launchPower, showProfile.launchPower, 0.5, 1.6),
       explosionPower: finite(candidate.show?.explosionPower, showProfile.explosionPower, 0.5, 1.6),

@@ -14,8 +14,10 @@ export const BOKEH_SHAPES = Object.freeze([
 export const BOKEH_SHAPE_IDS = Object.freeze(BOKEH_SHAPES.map(({ id }) => id));
 export const BOKEH_SHAPE_INDEX = Object.freeze(Object.fromEntries(BOKEH_SHAPES.map(({ id, index }) => [id, index])));
 
-export function sanitizeBokehShape(value) {
-  return BOKEH_SHAPE_IDS.includes(value) ? value : DEFAULT_BOKEH_SHAPE;
+export function sanitizeBokehShape(value, fallback = DEFAULT_BOKEH_SHAPE) {
+  return BOKEH_SHAPE_IDS.includes(value)
+    ? value
+    : BOKEH_SHAPE_IDS.includes(fallback) ? fallback : DEFAULT_BOKEH_SHAPE;
 }
 
 export function bokehShapeIndex(value) {

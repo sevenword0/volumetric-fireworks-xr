@@ -3,15 +3,25 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three/webgpu';
 import { FluidVolume } from '../src/volume/fluid-volume.js';
 
-function createFluid(grid = { x: 8, y: 6, z: 8 }) {
+function createFluid(grid = { x: 8, y: 6, z: 8 }, overrides = {}) {
   const scene = { add() {}, remove() {} };
   const state = {
-    physics: { windX: 1.6, windZ: 0.3, vortex: 0.42 },
-    volume: { smoke: 0.7, scattering: 1.25, shadow: 1.6, buoyancy: 1.1 },
-    quality: { shadows: true },
+    physics: { windX: 1.6, windZ: 0.3, vortex: 0.42, ...overrides.physics },
+    volume: { smoke: 0.7, scattering: 1.25, shadow: 1.6, buoyancy: 1.1, ...overrides.volume },
+    quality: { shadows: true, ...overrides.quality },
   };
   return new FluidVolume(scene, state, { grid });
 }
+
+test('zero smoke starts with volume simulation and both raymarch meshes disabled', () => {
+  const fluid = createFluid(undefined, { volume: { smoke: 0 } });
+  assert.equal(fluid.enabled, false);
+  assert.equal(fluid.mesh.visible, false);
+  assert.equal(fluid.shadowMesh.visible, false);
+  fluid.update(1);
+  assert.equal(fluid.completedSteps, 0);
+  fluid.dispose();
+});
 
 test('quality bounds raymarch work while runtime load transitions keep shader variants stable', () => {
   const fluid = createFluid();
