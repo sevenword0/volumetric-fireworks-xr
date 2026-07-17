@@ -203,7 +203,7 @@ export class AppUI extends EventTarget {
       'audio-drop', 'audio-input', 'audio-info', 'audio-name', 'audio-meta', 'audio-remove', 'audio-timeline', 'show-timeline-seek', 'show-timeline-time', 'music-bpm', 'music-cues', 'music-length',
       'music-loads',
       'show-choreography', 'show-direction', 'show-choreography-summary', 'preview-show',
-      'generate-show', 'restart-show', 'play-show', 'environment-select', 'environment-input', 'camera-view', 'floor-mode', 'quality-select', 'particle-blend',
+      'generate-show', 'restart-show', 'play-show', 'environment-select', 'environment-input', 'camera-view', 'floor-mode', 'floor-grid-toggle', 'quality-select', 'particle-blend',
       'bloom-toggle', 'dof-toggle', 'shadow-toggle', 'adaptive-toggle', 'predictive-load-toggle',
       'optimize-particles', 'optimize-resolution', 'optimize-volume', 'optimize-lighting', 'optimize-post',
       'sound-toggle', 'sound-status',
@@ -722,6 +722,12 @@ export class AppUI extends EventTarget {
         this.dispatchEvent(new CustomEvent('floormode', { detail: { value } }));
       });
     });
+    this.elements.floorgridtoggle.checked = this.state.world.floorGrid;
+    this.elements.floorgridtoggle.addEventListener('change', () => {
+      const value = this.elements.floorgridtoggle.checked;
+      this.store.set('world.floorGrid', value);
+      this.dispatchEvent(new CustomEvent('floorgrid', { detail: { value } }));
+    });
 
     this.elements.qualityselect.value = this.state.quality.preset;
     this.elements.qualityselect.addEventListener('change', () => {
@@ -969,6 +975,7 @@ export class AppUI extends EventTarget {
     this.updateShowChoreographySummary();
     this.elements.environmentselect.value = this.state.world.environment;
     this.elements.floormode.querySelectorAll('button').forEach((button) => button.classList.toggle('active', button.dataset.value === this.state.world.floor));
+    this.elements.floorgridtoggle.checked = this.state.world.floorGrid;
     this.elements.qualityselect.value = this.state.quality.preset;
     this.elements.particleblend.value = this.state.quality.particleBlend;
     this.elements.bloomtoggle.checked = this.state.quality.bloom;

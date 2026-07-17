@@ -97,6 +97,12 @@ test('camera field of view persists', () => {
   assert.deepEqual(sanitizeState({ camera: { fov: 73 } }).camera, { fov: 73 });
 });
 
+test('floor grid visibility persists independently from the floor material', () => {
+  assert.equal(sanitizeState({ world: { floor: 'none', floorGrid: false } }).world.floorGrid, false);
+  assert.equal(sanitizeState({ world: { floor: 'none', floorGrid: true } }).world.floorGrid, true);
+  assert.equal(sanitizeState({ world: { floor: 'matte' } }).world.floorGrid, true);
+});
+
 test('global ring particle amount persists', () => {
   assert.equal(sanitizeState({ physics: { ringParticleScale: 2.35 } }).physics.ringParticleScale, 2.35);
 });
@@ -188,9 +194,11 @@ test('set notifies subscribers and persists sanitized state', () => {
 test('export is versioned and reset restores defaults', () => {
   const store = createAppState(memoryStorage());
   store.set('tool', 'gust');
+  store.set('world.floorGrid', false);
   const exported = JSON.parse(store.export());
   assert.equal(exported.version, 1);
   assert.equal(exported.state.tool, 'gust');
+  assert.equal(exported.state.world.floorGrid, false);
   store.reset();
   assert.deepEqual(store.state, DEFAULT_STATE);
 });

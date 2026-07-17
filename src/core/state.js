@@ -55,6 +55,7 @@ export const DEFAULT_STATE = Object.freeze({
   world: {
     environment: 'lake',
     floor: 'water',
+    floorGrid: true,
     waterRoughness: 0.22,
     reflection: 0.72,
   },
@@ -152,6 +153,7 @@ export function sanitizeState(candidate = {}) {
     world: {
       environment: allowed(candidate.world?.environment, ['lake', 'city', 'alpine', 'cosmic', 'custom'], DEFAULT_STATE.world.environment),
       floor: allowed(candidate.world?.floor, ['matte', 'water', 'none'], DEFAULT_STATE.world.floor),
+      floorGrid: candidate.world?.floorGrid !== false,
       waterRoughness: finite(candidate.world?.waterRoughness, DEFAULT_STATE.world.waterRoughness, 0, 1),
       reflection: finite(candidate.world?.reflection, DEFAULT_STATE.world.reflection, 0, 1.2),
     },
