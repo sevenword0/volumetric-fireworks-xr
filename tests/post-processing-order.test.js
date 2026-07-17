@@ -13,14 +13,18 @@ test('particle depth of field is resolved before bloom expands into sky pixels',
   assert.doesNotMatch(source, /bokehDepthOfField\(composite/);
 });
 
-test('particle bokeh radius is driven by camera-space particle depth instead of a water footprint', async () => {
-  const source = await readFile(new URL('../src/pyro/firework-engine.js', import.meta.url), 'utf8');
-  const viewDistance = source.indexOf('const particleViewDistance = modelViewMatrix');
-  const focusError = source.indexOf('particleViewDistance.sub(this.focusDistanceNode)', viewDistance);
-  const expansion = source.indexOf('this.particleBokehExpansionNode = circleOfConfusion', focusError);
-  const spriteScale = source.indexOf('material.scaleNode = instancedBufferAttribute(this.scaleAttribute).mul(this.particleBokehExpansionNode)', expansion);
-  assert.ok(viewDistance >= 0, 'missing camera-space particle distance');
-  assert.ok(focusError > viewDistance, 'particle distance must drive the focal error');
-  assert.ok(expansion > focusError, 'missing particle-owned bokeh radius');
-  assert.ok(spriteScale > expansion, 'particle sprite must receive the bokeh radius');
+test('particle bokeh coverage expands beyond a guarded sprite seed in screen space', async () => {
+  const postSource = await readFile(new URL('../src/core/post-effects.js', import.meta.url), 'utf8');
+  const engineSource = await readFile(new URL('../src/pyro/firework-engine.js', import.meta.url), 'utf8');
+  const coveragePass = postSource.indexOf('const particleBokehFocusCoverage = Fn');
+  const neighboringFocus = postSource.indexOf('particleFocusTextureNode.sample(baseUV.add(texel.mul(offset)))', coveragePass);
+  const focusTexture = postSource.indexOf('convertToTexture(particleBokehFocusCoverage(', neighboringFocus);
+  const depthOfField = postSource.indexOf('return depthBokeh(convertToTexture(inputNode)', focusTexture);
+  assert.ok(coveragePass >= 0, 'missing screen-space particle focus coverage pass');
+  assert.ok(neighboringFocus > coveragePass, 'particle focus must be sampled beyond its source quad');
+  assert.ok(focusTexture > neighboringFocus, 'expanded focus coverage must be materialized before depth-of-field');
+  assert.ok(depthOfField > focusTexture, 'depth-of-field must consume expanded particle focus coverage');
+  assert.match(engineSource, /particleBokehGeometryExpansionNode/);
+  assert.match(engineSource, /shapeCircle\(guardedCircleUV\)/);
+  assert.match(engineSource, /material\.scaleNode = instancedBufferAttribute\(this\.scaleAttribute\)\.mul\(this\.particleBokehGeometryExpansionNode\);/);
 });
