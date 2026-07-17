@@ -6,6 +6,7 @@ import { PARTICLE_AFTERIMAGE_TARGET } from '../core/particle-afterimage.js';
 import { particleLoadLevel, particleLoadProfile } from '../core/particle-load-guard.js';
 import { clampRingParticleScale, resolveRingParticleProfile, resolveRingPistilCount } from '../core/ring-particles.js';
 import { MAX_POST_BURST_LIFETIME, MIN_POST_BURST_LIFETIME } from '../core/state.js';
+import { clampTrailParticleScale } from '../core/trail-particles.js';
 import { BURST_DIRECTION_STRIDE, createSplitDirections, hashString, mulberry32, writeBurstDirections } from './patterns.js';
 import { FIREWORK_PRESETS, LAUNCH_LAYOUTS } from './presets.js';
 
@@ -545,7 +546,7 @@ export class FireworkEngine extends EventTarget {
     }
 
     const lightColor = writePaletteColor(this._eventColor, palette, 0.25, colorHue);
-    this.dispatchEvent(new CustomEvent('burst', { detail: { preset, position, color: lightColor, scale, count, requestedCount, ringRequestedCount: ringProfile.ringCount, ringParticleScale: this.ringParticleScale, brightness: this.globalBrightness, colorHue, colorVariation, lifetimeScale } }));
+    this.dispatchEvent(new CustomEvent('burst', { detail: { preset, position, color: lightColor, scale, count, requestedCount, ringRequestedCount: ringProfile.ringCount, ringParticleScale: this.ringParticleScale, trailParticleScale: this.trailParticleScale, brightness: this.globalBrightness, colorHue, colorVariation, lifetimeScale } }));
     this.fluid?.addEmitter(position, (2.2 * preset.smoke * scale) / this.loadBudget.smokeStride, 1.9 * scale * this.globalBrightness, lightColor, 2.2);
     return count;
   }
@@ -878,9 +879,10 @@ export class FireworkEngine extends EventTarget {
         }
       }
 
-      if (this.loadBudget.trailScale > 0 && particle.trail > 0 && particle.type !== PARTICLE.EMBER) {
-        particle.trailClock += delta * particle.trailRate * particle.trail;
-        const spawnLimit = particle.type === PARTICLE.SHELL ? 3 : 2;
+      if (this.loadBudget.trailScale > 0 && this.trailParticleScale > 0 && particle.trail > 0 && particle.type !== PARTICLE.EMBER) {
+        particle.trailClock += delta * particle.trailRate * particle.trail * this.trailParticleScale;
+        const baseSpawnLimit = particle.type === PARTICLE.SHELL ? 3 : 2;
+        const spawnLimit = Math.ceil(baseSpawnLimit * Math.max(1, this.trailParticleScale));
         let spawned = 0;
         while (particle.trailClock >= 1 && spawned < spawnLimit) {
           particle.trailClock -= 1;
@@ -1055,6 +1057,7 @@ export class FireworkEngine extends EventTarget {
       peakActiveParticles: this.peakActiveCount,
       peakTrailSpawnsPerFrame: this.peakTrailSpawnsPerFrame,
       frameTrailSpawns: this._frameTrailSpawnCount,
+      trailParticleScale: this.trailParticleScale,
       motionVectorParticles: this._renderedCount,
     };
   }
@@ -1096,6 +1099,10 @@ export class FireworkEngine extends EventTarget {
 
   get ringParticleScale() {
     return clampRingParticleScale(this.state.physics?.ringParticleScale, 1);
+  }
+
+  get trailParticleScale() {
+    return clampTrailParticleScale(this.state.physics?.trailParticleScale, 1);
   }
 
   get renderLimit() {

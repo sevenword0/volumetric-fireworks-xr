@@ -2,6 +2,7 @@ import * as THREE from 'three/webgpu';
 import { MAX_BOKEH_GAMMA, MIN_BOKEH_GAMMA } from '../core/bokeh-response.js';
 import { MAX_PARTICLE_AFTERIMAGE, MIN_PARTICLE_AFTERIMAGE } from '../core/particle-afterimage.js';
 import { MAX_RING_PARTICLE_SCALE, MIN_RING_PARTICLE_SCALE } from '../core/ring-particles.js';
+import { MAX_TRAIL_PARTICLE_SCALE, MIN_TRAIL_PARTICLE_SCALE } from '../core/trail-particles.js';
 import {
   BASE_AIR_DRAG,
   MAX_AIR_DRAG,
@@ -75,6 +76,7 @@ export class XRCubeUI extends EventTarget {
           { label: '위치 범위', value: () => `${Math.round(this.state.launch.positionRange * 100)}%`, action: () => this.adjust('launch.positionRange', 0.25, MIN_LAUNCH_POSITION_RANGE, MAX_LAUNCH_POSITION_RANGE) },
           { label: '최초 발사', value: () => `${Math.round(this.state.launch.initialPower * 100)}%`, action: () => this.adjust('launch.initialPower', 0.25, MIN_INITIAL_LAUNCH_POWER, MAX_INITIAL_LAUNCH_POWER) },
           { label: '고리 입자', value: () => `${Math.round(this.state.physics.ringParticleScale * 100)}%`, action: () => this.adjust('physics.ringParticleScale', 0.25, MIN_RING_PARTICLE_SCALE, MAX_RING_PARTICLE_SCALE) },
+          { label: '꼬리 입자', value: () => `${Math.round(this.state.physics.trailParticleScale * 100)}%`, action: () => this.adjust('physics.trailParticleScale', 0.25, MIN_TRAIL_PARTICLE_SCALE, MAX_TRAIL_PARTICLE_SCALE) },
           { label: '발사', value: () => 'LAUNCH', action: () => this.callbacks.launch?.() },
         ],
       },
