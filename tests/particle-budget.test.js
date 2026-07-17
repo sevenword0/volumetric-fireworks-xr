@@ -74,8 +74,10 @@ test('global brightness scales particle HDR output and clamps unsafe values', ()
   engine.dispose();
 });
 
-test('particle-owned focus uniforms update independently of floor geometry', () => {
+test('particle bokeh seed keeps an independent transparent guard around its visible area', () => {
   const engine = createEngine();
+  assert.ok(engine.particleBokehGeometryExpansionNode);
+  assert.ok(engine.particleBokehExpansionNode);
   assert.deepEqual(engine.setFocusEffect({ active: true, distance: 92, range: 18, scale: 1.4 }), {
     active: true,
     distance: 92,

@@ -2,6 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   applyBokehGamma,
+  particleBokehCoverageReach,
+  particleBokehGeometryScale,
+  particleBokehRadiusPixels,
   particleBokehSpriteScale,
 } from '../src/core/bokeh-response.js';
 
@@ -22,8 +25,21 @@ test('bokeh gamma clamps unsafe inputs and never creates negative light', () => 
   assert.equal(applyBokehGamma(Number.NaN, Number.NaN), 0);
 });
 
-test('particle sprite bokeh expands only off-focus particles while the effect is active', () => {
-  assert.equal(particleBokehSpriteScale(0, 2, true), 1);
+test('particle bokeh exposes its complete screen-space radius', () => {
+  assert.equal(particleBokehRadiusPixels(0, 2, true), 0);
+  assert.equal(particleBokehRadiusPixels(1, 2, true), 22);
+  assert.equal(particleBokehRadiusPixels(1, 2, false), 0);
+});
+
+test('particle bokeh seed has transparent geometry guard space around its visible disc', () => {
   assert.equal(particleBokehSpriteScale(1, 2, true), 13);
-  assert.equal(particleBokehSpriteScale(1, 2, false), 1);
+  assert.ok(Math.abs(particleBokehGeometryScale(1, 2, true) - 17.2) < 1e-12);
+  assert.equal(particleBokehGeometryScale(1, 2, false), 1);
+});
+
+test('particle focus coverage reaches the full bokeh edge beyond the source quad', () => {
+  assert.equal(particleBokehCoverageReach(1, 2, 0), 1);
+  assert.equal(particleBokehCoverageReach(1, 2, 22), 1);
+  assert.equal(particleBokehCoverageReach(1, 2, 22.5), 0.5);
+  assert.equal(particleBokehCoverageReach(1, 2, 23), 0);
 });

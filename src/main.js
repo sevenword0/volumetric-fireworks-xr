@@ -7,6 +7,7 @@ import { motionBlur } from 'three/addons/tsl/display/MotionBlur.js';
 import WebGPU from 'three/addons/capabilities/WebGPU.js';
 import { AudioShowController, findCueIndexAtTime, getPresetForCue } from './audio/audio-show.js';
 import { FireworkSoundEngine } from './audio/firework-sound.js';
+import { PARTICLE_BOKEH_RADIUS_PIXELS } from './core/bokeh-response.js';
 import { PARTICLE_FOCUS_TARGET } from './core/focus-depth.js';
 import { ParticleLoadGuard, applyLoadOptimizationTargets, particleLoadLevel } from './core/particle-load-guard.js';
 import { ParticleLoadPlanner } from './core/particle-load-planner.js';
@@ -356,6 +357,9 @@ function syncPostProcessing() {
   canvas.dataset.particleFocusDepth = PARTICLE_FOCUS_TARGET;
   canvas.dataset.particleBokehDepth = 'cameraSpace';
   canvas.dataset.particleBokehWaterIndependent = 'true';
+  canvas.dataset.particleBokehCoverage = 'screenSpaceNeighborhood';
+  canvas.dataset.particleBokehGeometryExpansion = 'guardedSeed';
+  canvas.dataset.particleBokehRadiusPixels = String(state.quality.bokehScale * PARTICLE_BOKEH_RADIUS_PIXELS);
   canvas.dataset.focusEffectOrder = 'motion-dof-texture-bloom';
   usePostProcessing = state.quality.bloom
     || (state.quality.depthOfField && state.quality.bokehScale > 0.001)
