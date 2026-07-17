@@ -71,7 +71,7 @@ export class FluidVolume {
     this.simulationCursorZ = 0;
     this.lastSimulationSlices = 0;
     this.completedSteps = 0;
-    this.enabled = true;
+    this.enabled = state.volume.smoke > 0.001;
 
     this.texture = new THREE.Data3DTexture(this.textureData, this.nx, this.ny, this.nz);
     this.texture.name = 'Fireworks smoke volume';
@@ -176,6 +176,7 @@ export class FluidVolume {
     // water-reflection renders.
     this.shadowMesh.layers.set(RENDER_LAYERS.VOLUME_SHADOW);
     scene.add(this.shadowMesh);
+    this.syncVisibility();
   }
 
   index(x, y, z) {

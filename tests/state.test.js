@@ -11,8 +11,75 @@ function memoryStorage(initial = null) {
   };
 }
 
-test('empty input produces complete defaults', () => {
+const REQUESTED_DEFAULT_STATE = {
+  selectedPresetId: 'gold-chrysanthemum',
+  launchLayout: 'finale',
+  launch: { centerX: 0, positionRange: 2.5, initialPower: 2 },
+  tool: 'camera',
+  camera: { fov: 80 },
+  physics: {
+    gravity: 0.1,
+    drag: 2.2355,
+    particleLifetime: 2.45,
+    ringParticleScale: 1,
+    trailParticleScale: 2.65,
+    windX: 0,
+    windZ: 0.1,
+    vortex: 0,
+  },
+  volume: { smoke: 0, buoyancy: 2.05, scattering: 3, shadow: 0 },
+  world: {
+    environment: 'lake',
+    floor: 'water',
+    floorGrid: true,
+    waterRoughness: 0.77,
+    reflection: 0.68,
+  },
+  quality: {
+    preset: 'high',
+    fireworkBrightness: 0.6,
+    bloom: true,
+    bloomStrength: 0.8,
+    bloomRadius: 0.84,
+    bloomThreshold: 0.16,
+    saturation: 1.15,
+    motionBlur: 0,
+    particleAfterimage: 0.8,
+    depthOfField: true,
+    focusDistance: 85,
+    focusRange: 160,
+    bokehScale: 1.25,
+    bokehSamples: 25,
+    bokehGamma: 2.25,
+    bokehShape: 'hexagon',
+    particleBlend: 'additive',
+    shadows: false,
+    adaptive: false,
+    predictiveLoad: true,
+    autoTargets: { particles: true, resolution: true, volume: true, lighting: true, postProcessing: false },
+  },
+  sound: { enabled: true, volume: 0.72 },
+  show: {
+    musicVolume: 0.78,
+    sensitivity: 0.68,
+    density: 0.62,
+    variety: 0.78,
+    finale: 0.85,
+    choreographyPreset: 'grand-finale',
+    directionMode: 'radial',
+    launchPower: 1.24,
+    explosionPower: 1.34,
+    positionSpread: 1.18,
+    sequence: 0.22,
+    crossfire: 0.64,
+    colorVariation: 0.74,
+  },
+};
+
+test('empty input produces the requested complete defaults', () => {
+  assert.deepEqual(DEFAULT_STATE, REQUESTED_DEFAULT_STATE);
   assert.deepEqual(sanitizeState(), DEFAULT_STATE);
+  assert.deepEqual(createAppState(memoryStorage()).state, REQUESTED_DEFAULT_STATE);
 });
 
 test('numeric state is clamped to safe simulation ranges', () => {
@@ -42,9 +109,9 @@ test('numeric state is clamped to safe simulation ranges', () => {
   assert.deepEqual(sanitizeState({ camera: { fov: -10 } }).camera, { fov: 20 });
   assert.deepEqual(state.launch, { centerX: 40, positionRange: 2.5, initialPower: 2 });
   assert.deepEqual(sanitizeState({ launch: { centerX: -999, positionRange: -4, initialPower: -4 } }).launch, { centerX: -40, positionRange: 0.1, initialPower: 0.5 });
-  assert.deepEqual(state.physics, { gravity: 2, drag: 4.25, particleLifetime: 5, ringParticleScale: 3, trailParticleScale: 3, windX: 8, windZ: -8, vortex: 0.42 });
+  assert.deepEqual(state.physics, { gravity: 2, drag: 4.25, particleLifetime: 5, ringParticleScale: 3, trailParticleScale: 3, windX: 8, windZ: -8, vortex: 0 });
   assert.deepEqual(sanitizeState({ physics: { drag: -4, particleLifetime: -4, ringParticleScale: -4, trailParticleScale: -4 } }).physics, {
-    gravity: 1, drag: 0, particleLifetime: 0.25, ringParticleScale: 0.25, trailParticleScale: 0, windX: 1.6, windZ: 0.3, vortex: 0.42,
+    gravity: 0.1, drag: 0, particleLifetime: 0.25, ringParticleScale: 0.25, trailParticleScale: 0, windX: 0, windZ: 0.1, vortex: 0,
   });
   assert.deepEqual(state.volume, { smoke: 1.5, buoyancy: 0, scattering: 3, shadow: 4 });
   assert.equal(state.world.waterRoughness, 1);
@@ -70,8 +137,8 @@ test('numeric state is clamped to safe simulation ranges', () => {
     density: 0.1,
     variety: 0,
     finale: 1,
-    choreographyPreset: 'balanced',
-    directionMode: 'music',
+    choreographyPreset: 'grand-finale',
+    directionMode: 'radial',
     launchPower: 1.6,
     explosionPower: 0.5,
     positionSpread: 1.5,
@@ -116,15 +183,15 @@ test('global trail particle amount persists and can fully disable trails', () =>
 
 test('unknown enum values fall back instead of entering the renderer', () => {
   const state = sanitizeState({ launchLayout: 'unsafe', tool: 'laser', world: { environment: 'url', floor: 'lava' }, quality: { preset: 'ultra', particleBlend: 'burn', bokehShape: 'diamond' }, show: { choreographyPreset: 'unsafe', directionMode: 'backward' } });
-  assert.equal(state.launchLayout, 'single');
+  assert.equal(state.launchLayout, 'finale');
   assert.equal(state.tool, 'camera');
   assert.equal(state.world.environment, 'lake');
   assert.equal(state.world.floor, 'water');
-  assert.equal(state.quality.preset, 'auto');
+  assert.equal(state.quality.preset, 'high');
   assert.equal(state.quality.particleBlend, 'additive');
-  assert.equal(state.quality.bokehShape, 'circle');
-  assert.equal(state.show.choreographyPreset, 'balanced');
-  assert.equal(state.show.directionMode, 'music');
+  assert.equal(state.quality.bokehShape, 'hexagon');
+  assert.equal(state.show.choreographyPreset, 'grand-finale');
+  assert.equal(state.show.directionMode, 'radial');
 });
 
 test('music choreography settings persist with custom direction and strengths', () => {
@@ -165,9 +232,9 @@ test('visual effects and impact sound settings persist after sanitization', () =
     show: { musicVolume: 0.42 },
   });
   assert.deepEqual(state.quality, {
-    preset: 'auto', fireworkBrightness: 1.8, bloom: false, bloomStrength: 1.4, bloomRadius: 0.3, bloomThreshold: 1.1,
+    preset: 'high', fireworkBrightness: 1.8, bloom: false, bloomStrength: 1.4, bloomRadius: 0.3, bloomThreshold: 1.1,
     saturation: 1.6, motionBlur: 0.8, particleAfterimage: 0.64, depthOfField: false, focusDistance: 94, focusRange: 18, bokehScale: 1.2, bokehSamples: 21, bokehGamma: 1.75, bokehShape: 'heart',
-    particleBlend: 'screen', shadows: true, adaptive: true, predictiveLoad: false,
+    particleBlend: 'screen', shadows: false, adaptive: false, predictiveLoad: false,
     autoTargets: { particles: false, resolution: false, volume: false, lighting: false, postProcessing: false },
   });
   assert.deepEqual(state.sound, { enabled: false, volume: 0.35 });
