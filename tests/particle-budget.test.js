@@ -74,6 +74,23 @@ test('global brightness scales particle HDR output and clamps unsafe values', ()
   engine.dispose();
 });
 
+test('particle-owned focus uniforms update independently of floor geometry', () => {
+  const engine = createEngine();
+  assert.deepEqual(engine.setFocusEffect({ active: true, distance: 92, range: 18, scale: 1.4 }), {
+    active: true,
+    distance: 92,
+    range: 18,
+    scale: 1.4,
+  });
+  assert.deepEqual(engine.setFocusEffect({ active: false, distance: -5, range: 0, scale: -1 }), {
+    active: false,
+    distance: 0.001,
+    range: 0.001,
+    scale: 0,
+  });
+  engine.dispose();
+});
+
 test('music choreography reaches shell velocity, burst scale, mirrored salvos, and hue variation', () => {
   const engine = createEngine(1000);
   const preset = FIREWORK_PRESETS[0];

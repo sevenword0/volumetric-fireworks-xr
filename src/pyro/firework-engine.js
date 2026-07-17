@@ -1,5 +1,6 @@
 import * as THREE from 'three/webgpu';
-import { instancedBufferAttribute, mrt, output, positionPrevious, positionView, shapeCircle, subBuild, vec4 } from 'three/tsl';
+import { instancedBufferAttribute, modelViewMatrix, mrt, output, positionPrevious, positionView, shapeCircle, smoothstep, subBuild, uniform, vec4 } from 'three/tsl';
+import { PARTICLE_BOKEH_SPRITE_EXPANSION } from '../core/bokeh-response.js';
 import { PARTICLE_FOCUS_TARGET } from '../core/focus-depth.js';
 import { particleLoadLevel, particleLoadProfile } from '../core/particle-load-guard.js';
 import { clampRingParticleScale, resolveRingParticleProfile, resolveRingPistilCount } from '../core/ring-particles.js';
@@ -159,16 +160,31 @@ export class FireworkEngine extends EventTarget {
     this.dynamicAttributes = [this.positionAttribute, this.previousPositionAttribute, this.colorAttribute, this.scaleAttribute, this.alphaAttribute];
 
     this.particlePreviousPositionNode = instancedBufferAttribute(this.previousPositionAttribute);
+    this.particlePositionNode = instancedBufferAttribute(this.positionAttribute);
     const material = new MotionSpriteNodeMaterial(this.particlePreviousPositionNode);
     this.particleColorNode = instancedBufferAttribute(this.colorAttribute);
     this.particleOpacityNode = instancedBufferAttribute(this.alphaAttribute).mul(shapeCircle());
-    material.positionNode = instancedBufferAttribute(this.positionAttribute);
+    this.focusEffectActiveNode = uniform(state.quality.depthOfField ? 1 : 0);
+    this.focusDistanceNode = uniform(finite(state.quality.focusDistance, 70));
+    this.focusRangeNode = uniform(finite(state.quality.focusRange, 26));
+    this.focusBokehScaleNode = uniform(finite(state.quality.bokehScale, 0.65));
+    const particleViewDistance = modelViewMatrix.mul(vec4(this.particlePositionNode, 1)).z.negate();
+    const focusError = particleViewDistance.sub(this.focusDistanceNode).abs();
+    const safeFocusRange = this.focusRangeNode.max(0.001);
+    const circleOfConfusion = smoothstep(safeFocusRange.mul(0.08), safeFocusRange, focusError);
+    this.particleBokehExpansionNode = circleOfConfusion
+      .mul(this.focusBokehScaleNode)
+      .mul(this.focusEffectActiveNode)
+      .mul(PARTICLE_BOKEH_SPRITE_EXPANSION)
+      .add(1);
+    this.renderParticleOpacityNode = this.particleOpacityNode.div(this.particleBokehExpansionNode.sqrt());
+    material.positionNode = this.particlePositionNode;
     material.colorNode = this.particleColorNode;
-    material.scaleNode = instancedBufferAttribute(this.scaleAttribute);
-    material.opacityNode = this.particleOpacityNode;
+    material.scaleNode = instancedBufferAttribute(this.scaleAttribute).mul(this.particleBokehExpansionNode);
+    material.opacityNode = this.renderParticleOpacityNode;
     const particleFocusMRT = mrt({
       '': output,
-      [PARTICLE_FOCUS_TARGET]: vec4(positionView.z.negate(), 0, 0, this.particleOpacityNode),
+      [PARTICLE_FOCUS_TARGET]: vec4(positionView.z.negate(), 0, 0, this.renderParticleOpacityNode),
     });
     const particleFocusBlend = new THREE.BlendMode(THREE.CustomBlending);
     particleFocusBlend.blendSrc = THREE.SrcAlphaFactor;
@@ -216,7 +232,7 @@ export class FireworkEngine extends EventTarget {
   setBlendingMode(mode) {
     const next = ['additive', 'screen', 'alpha'].includes(mode) ? mode : 'additive';
     this.blendingMode = next;
-    this.material.colorNode = next === 'screen' ? this.particleColorNode.mul(this.particleOpacityNode) : this.particleColorNode;
+    this.material.colorNode = next === 'screen' ? this.particleColorNode.mul(this.renderParticleOpacityNode) : this.particleColorNode;
     this.material.premultipliedAlpha = next === 'screen';
 
     if (next === 'screen') {
@@ -231,6 +247,19 @@ export class FireworkEngine extends EventTarget {
     }
     this.material.needsUpdate = true;
     return next;
+  }
+
+  setFocusEffect({ active, distance, range, scale } = {}) {
+    if (active !== undefined) this.focusEffectActiveNode.value = active ? 1 : 0;
+    if (distance !== undefined) this.focusDistanceNode.value = Math.max(0.001, finite(distance, finite(this.focusDistanceNode.value, 70)));
+    if (range !== undefined) this.focusRangeNode.value = Math.max(0.001, finite(range, finite(this.focusRangeNode.value, 26)));
+    if (scale !== undefined) this.focusBokehScaleNode.value = Math.max(0, finite(scale, finite(this.focusBokehScaleNode.value, 0.65)));
+    return {
+      active: this.focusEffectActiveNode.value > 0,
+      distance: this.focusDistanceNode.value,
+      range: this.focusRangeNode.value,
+      scale: this.focusBokehScaleNode.value,
+    };
   }
 
   setGlobalBrightness(value) {

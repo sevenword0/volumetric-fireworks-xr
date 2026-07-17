@@ -345,9 +345,17 @@ function syncPostProcessing() {
   bokehScaleAmount.value = state.quality.bokehScale;
   bokehSamplesAmount.value = state.quality.bokehSamples;
   bokehGammaAmount.value = state.quality.bokehGamma;
+  engine?.setFocusEffect({
+    active: state.quality.depthOfField && state.quality.bokehScale > 0 && usePostProcessing && runtimePostProcessing && !renderer.xr.isPresenting && !renderFailedOver,
+    distance: state.quality.focusDistance,
+    range: state.quality.focusRange,
+    scale: state.quality.bokehScale,
+  });
   canvas.dataset.bokehSamples = String(state.quality.bokehSamples);
   canvas.dataset.bokehGamma = String(state.quality.bokehGamma);
   canvas.dataset.particleFocusDepth = PARTICLE_FOCUS_TARGET;
+  canvas.dataset.particleBokehDepth = 'cameraSpace';
+  canvas.dataset.particleBokehWaterIndependent = 'true';
   canvas.dataset.focusEffectOrder = 'motion-dof-texture-bloom';
   usePostProcessing = state.quality.bloom
     || (state.quality.depthOfField && state.quality.bokehScale > 0.001)
@@ -955,6 +963,9 @@ function animate(now) {
   const immediateParticleLevel = particleLoadLevel(engine.activeCount / engine.maxParticles);
   runtimePostProcessing = loadGuardState.postProcessing
     && (!state.quality.autoTargets.postProcessing || immediateParticleLevel === 0);
+  engine.setFocusEffect({
+    active: state.quality.depthOfField && state.quality.bokehScale > 0 && usePostProcessing && runtimePostProcessing && !renderer.xr.isPresenting && !renderFailedOver,
+  });
 
   try {
     if (usePostProcessing && runtimePostProcessing && !renderer.xr.isPresenting && !renderFailedOver) getActiveRenderPipeline().render();
