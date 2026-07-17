@@ -84,6 +84,7 @@ let focusDistanceAmount;
 let focusRangeAmount;
 let bokehScaleAmount;
 let bokehSamplesAmount;
+let bokehGammaAmount;
 let usePostProcessing = true;
 let runtimePostProcessing = true;
 let renderFailedOver = false;
@@ -227,6 +228,7 @@ async function initialize() {
           focusRange: state.quality.focusRange,
           bokehScale: state.quality.bokehScale,
           bokehSamples: state.quality.bokehSamples,
+          bokehGamma: state.quality.bokehGamma,
           particleFocusDepth: PARTICLE_FOCUS_TARGET,
           particleBlend: engine.blendingMode,
           predictiveLoad: state.quality.predictiveLoad,
@@ -307,20 +309,21 @@ function setupPostProcessing() {
   focusRangeAmount = uniform(state.quality.focusRange);
   bokehScaleAmount = uniform(state.quality.bokehScale);
   bokehSamplesAmount = uniform(state.quality.bokehSamples, 'int');
+  bokehGammaAmount = uniform(state.quality.bokehGamma);
   const velocityTexture = scenePass.getTextureNode('velocity').mul(motionBlurAmount);
   const motionColor = motionBlur(sceneColor, velocityTexture, int(8));
   bloomNode = bloom(motionColor);
   const composite = motionColor.add(bloomNode);
   renderPipeline = new THREE.RenderPipeline(renderer);
   renderPipeline.outputNode = vec4(saturation(composite.rgb, saturationAmount), composite.a);
-  const bokehColor = bokehDepthOfField(composite, scenePass.getViewZNode(), particleFocusTexture, focusDistanceAmount, focusRangeAmount, bokehScaleAmount, bokehSamplesAmount);
+  const bokehColor = bokehDepthOfField(composite, scenePass.getViewZNode(), particleFocusTexture, focusDistanceAmount, focusRangeAmount, bokehScaleAmount, bokehSamplesAmount, bokehGammaAmount);
   bokehRenderPipeline = new THREE.RenderPipeline(renderer);
   bokehRenderPipeline.outputNode = vec4(saturation(bokehColor.rgb, saturationAmount), bokehColor.a);
   syncPostProcessing();
 }
 
 function syncPostProcessing() {
-  if (!bloomNode || !saturationAmount || !motionBlurAmount || !focusDistanceAmount || !focusRangeAmount || !bokehScaleAmount || !bokehSamplesAmount) return;
+  if (!bloomNode || !saturationAmount || !motionBlurAmount || !focusDistanceAmount || !focusRangeAmount || !bokehScaleAmount || !bokehSamplesAmount || !bokehGammaAmount) return;
   bloomNode.threshold.value = state.quality.bloomThreshold;
   bloomNode.strength.value = state.quality.bloom ? state.quality.bloomStrength : 0;
   bloomNode.radius.value = state.quality.bloomRadius;
@@ -330,7 +333,9 @@ function syncPostProcessing() {
   focusRangeAmount.value = state.quality.focusRange;
   bokehScaleAmount.value = state.quality.bokehScale;
   bokehSamplesAmount.value = state.quality.bokehSamples;
+  bokehGammaAmount.value = state.quality.bokehGamma;
   canvas.dataset.bokehSamples = String(state.quality.bokehSamples);
+  canvas.dataset.bokehGamma = String(state.quality.bokehGamma);
   canvas.dataset.particleFocusDepth = PARTICLE_FOCUS_TARGET;
   usePostProcessing = state.quality.bloom
     || (state.quality.depthOfField && state.quality.bokehScale > 0.001)
@@ -747,6 +752,7 @@ const RANGE_BINDINGS_FOR_CUBE = Object.freeze({
   'physics.windX': 'wind-x',
   'physics.vortex': 'vortex',
   'quality.fireworkBrightness': 'firework-brightness',
+  'quality.bokehGamma': 'bokeh-gamma',
   'quality.bokehSamples': 'bokeh-samples',
 });
 

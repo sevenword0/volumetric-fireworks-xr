@@ -5,6 +5,7 @@ import {
   getShowChoreographyPreset,
 } from '../audio/show-choreography.js';
 import { DEFAULT_OPTIMIZATION_TARGETS } from './particle-load-guard.js';
+import { MAX_BOKEH_GAMMA, MIN_BOKEH_GAMMA } from './bokeh-response.js';
 
 export const BASE_AIR_DRAG = 0.085;
 export const MAX_AIR_DRAG = 4.25;
@@ -64,6 +65,7 @@ export const DEFAULT_STATE = Object.freeze({
     focusRange: 26,
     bokehScale: 0.65,
     bokehSamples: 13,
+    bokehGamma: 1,
     particleBlend: 'additive',
     shadows: true,
     adaptive: true,
@@ -152,6 +154,7 @@ export function sanitizeState(candidate = {}) {
       focusRange: finite(candidate.quality?.focusRange, DEFAULT_STATE.quality.focusRange, 1, 160),
       bokehScale: finite(candidate.quality?.bokehScale, DEFAULT_STATE.quality.bokehScale, 0, 2),
       bokehSamples: integer(candidate.quality?.bokehSamples, DEFAULT_STATE.quality.bokehSamples, MIN_BOKEH_SAMPLES, MAX_BOKEH_SAMPLES),
+      bokehGamma: finite(candidate.quality?.bokehGamma, DEFAULT_STATE.quality.bokehGamma, MIN_BOKEH_GAMMA, MAX_BOKEH_GAMMA),
       particleBlend: allowed(candidate.quality?.particleBlend, ['additive', 'screen', 'alpha'], DEFAULT_STATE.quality.particleBlend),
       shadows: candidate.quality?.shadows !== false,
       adaptive: candidate.quality?.adaptive !== false,
