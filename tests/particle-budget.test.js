@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three/webgpu';
+import { BOKEH_SHAPE_INDEX } from '../src/core/bokeh-shapes.js';
 import { FireworkEngine } from '../src/pyro/firework-engine.js';
 import { FIREWORK_PRESETS } from '../src/pyro/presets.js';
 
@@ -78,17 +79,19 @@ test('particle bokeh seed keeps an independent transparent guard around its visi
   const engine = createEngine();
   assert.ok(engine.particleBokehGeometryExpansionNode);
   assert.ok(engine.particleBokehExpansionNode);
-  assert.deepEqual(engine.setFocusEffect({ active: true, distance: 92, range: 18, scale: 1.4 }), {
+  assert.deepEqual(engine.setFocusEffect({ active: true, distance: 92, range: 18, scale: 1.4, shape: 'heart' }), {
     active: true,
     distance: 92,
     range: 18,
     scale: 1.4,
+    shapeIndex: BOKEH_SHAPE_INDEX.heart,
   });
   assert.deepEqual(engine.setFocusEffect({ active: false, distance: -5, range: 0, scale: -1 }), {
     active: false,
     distance: 0.001,
     range: 0.001,
     scale: 0,
+    shapeIndex: BOKEH_SHAPE_INDEX.heart,
   });
   engine.dispose();
 });

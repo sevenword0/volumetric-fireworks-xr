@@ -9,6 +9,7 @@ import WebGPU from 'three/addons/capabilities/WebGPU.js';
 import { AudioShowController, findCueIndexAtTime, getPresetForCue } from './audio/audio-show.js';
 import { FireworkSoundEngine } from './audio/firework-sound.js';
 import { PARTICLE_BOKEH_RADIUS_PIXELS } from './core/bokeh-response.js';
+import { BOKEH_SHAPES, bokehShapeIndex, nextBokehShape } from './core/bokeh-shapes.js';
 import { FOCUS_HEMISPHERE_RADIUS, FOCUS_HEMISPHERE_SURFACE_SIZE, FOCUS_HEMISPHERE_TARGET } from './core/focus-hemisphere.js';
 import { PARTICLE_FOCUS_TARGET } from './core/focus-depth.js';
 import { PARTICLE_AFTERIMAGE_TARGET, resolveParticleAfterimage } from './core/particle-afterimage.js';
@@ -93,6 +94,7 @@ let focusRangeAmount;
 let bokehScaleAmount;
 let bokehSamplesAmount;
 let bokehGammaAmount;
+let bokehShapeAmount;
 let usePostProcessing = true;
 let runtimePostProcessing = true;
 let renderFailedOver = false;
@@ -253,6 +255,8 @@ async function initialize() {
           bokehScale: state.quality.bokehScale,
           bokehSamples: state.quality.bokehSamples,
           bokehGamma: state.quality.bokehGamma,
+          bokehShape: state.quality.bokehShape,
+          bokehShapeIndex: bokehShapeIndex(state.quality.bokehShape),
           particleFocusDepth: PARTICLE_FOCUS_TARGET,
           particleFocusProxy: FOCUS_HEMISPHERE_TARGET,
           particleFocusProxyShape: 'virtualHemisphere',
@@ -358,6 +362,7 @@ function setupPostProcessing() {
   bokehScaleAmount = uniform(state.quality.bokehScale);
   bokehSamplesAmount = uniform(state.quality.bokehSamples, 'int');
   bokehGammaAmount = uniform(state.quality.bokehGamma);
+  bokehShapeAmount = uniform(bokehShapeIndex(state.quality.bokehShape), 'int');
   const accumulatedParticleAfterimage = afterImage(particleAfterimageTexture, particleAfterimageDampAmount);
   const particleAfterimageResidual = accumulatedParticleAfterimage.sub(particleAfterimageTexture).max(0).mul(particleAfterimageAmount);
   const sceneWithParticleAfterimage = vec4(sceneColor.rgb.add(particleAfterimageResidual.rgb), sceneColor.a);
@@ -371,7 +376,7 @@ function setupPostProcessing() {
   // Resolve particle focus against a colorless virtual hemisphere before bloom.
   // It covers the sky above the water footprint without entering scene depth,
   // reflections, collisions, shadows, or the visible color attachment.
-  const bokehColor = bokehDepthOfField(motionColor, scenePass.getViewZNode(), focusHemisphereTexture, particleFocusTexture, focusDistanceAmount, focusRangeAmount, bokehScaleAmount, bokehSamplesAmount, bokehGammaAmount);
+  const bokehColor = bokehDepthOfField(motionColor, scenePass.getViewZNode(), focusHemisphereTexture, particleFocusTexture, focusDistanceAmount, focusRangeAmount, bokehScaleAmount, bokehSamplesAmount, bokehGammaAmount, bokehShapeAmount);
   const bokehTexture = convertToTexture(bokehColor);
   bokehBloomNode = bloom(bokehTexture);
   const bokehComposite = bokehTexture.add(bokehBloomNode);
@@ -397,7 +402,7 @@ function syncParticleAfterimageRuntime() {
 }
 
 function syncPostProcessing() {
-  if (!bloomNode || !bokehBloomNode || !saturationAmount || !motionBlurAmount || !particleAfterimageAmount || !particleAfterimageDampAmount || !focusDistanceAmount || !focusRangeAmount || !bokehScaleAmount || !bokehSamplesAmount || !bokehGammaAmount) return;
+  if (!bloomNode || !bokehBloomNode || !saturationAmount || !motionBlurAmount || !particleAfterimageAmount || !particleAfterimageDampAmount || !focusDistanceAmount || !focusRangeAmount || !bokehScaleAmount || !bokehSamplesAmount || !bokehGammaAmount || !bokehShapeAmount) return;
   for (const activeBloomNode of [bloomNode, bokehBloomNode]) {
     activeBloomNode.threshold.value = state.quality.bloomThreshold;
     activeBloomNode.strength.value = state.quality.bloom ? state.quality.bloomStrength : 0;
@@ -410,14 +415,20 @@ function syncPostProcessing() {
   bokehScaleAmount.value = state.quality.bokehScale;
   bokehSamplesAmount.value = state.quality.bokehSamples;
   bokehGammaAmount.value = state.quality.bokehGamma;
+  bokehShapeAmount.value = bokehShapeIndex(state.quality.bokehShape);
   engine?.setFocusEffect({
     active: state.quality.depthOfField && state.quality.bokehScale > 0 && usePostProcessing && runtimePostProcessing && !renderer.xr.isPresenting && !renderFailedOver,
     distance: state.quality.focusDistance,
     range: state.quality.focusRange,
     scale: state.quality.bokehScale,
+    shape: state.quality.bokehShape,
   });
   canvas.dataset.bokehSamples = String(state.quality.bokehSamples);
   canvas.dataset.bokehGamma = String(state.quality.bokehGamma);
+  canvas.dataset.bokehShape = state.quality.bokehShape;
+  canvas.dataset.bokehShapeIndex = String(bokehShapeIndex(state.quality.bokehShape));
+  canvas.dataset.bokehShapeCount = String(BOKEH_SHAPES.length);
+  canvas.dataset.bokehShapeKernel = 'uniformBranch';
   canvas.dataset.particleFocusDepth = PARTICLE_FOCUS_TARGET;
   canvas.dataset.particleBokehDepth = 'cameraSpace';
   canvas.dataset.particleBokehWaterIndependent = 'true';
@@ -901,6 +912,11 @@ function createCubeCallbacks() {
       store.set('quality.preset', next);
       ui.elements.qualityselect.value = next;
       applyQuality(next === 'auto' ? resolveQuality() : next);
+    },
+    nextBokehShape: () => {
+      const next = nextBokehShape(state.quality.bokehShape);
+      ui.elements.bokehshape.value = next;
+      ui.elements.bokehshape.dispatchEvent(new Event('change'));
     },
     getParticleCount: () => engine.activeCount,
     exitXR: () => xrSession?.end(),

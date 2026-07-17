@@ -207,7 +207,7 @@ export class AppUI extends EventTarget {
       'audio-drop', 'audio-input', 'audio-info', 'audio-name', 'audio-meta', 'audio-remove', 'audio-timeline', 'show-timeline-seek', 'show-timeline-time', 'music-bpm', 'music-cues', 'music-length',
       'music-loads',
       'show-choreography', 'show-direction', 'show-choreography-summary', 'preview-show',
-      'generate-show', 'restart-show', 'play-show', 'environment-select', 'environment-input', 'camera-view', 'floor-mode', 'floor-grid-toggle', 'quality-select', 'particle-blend',
+      'generate-show', 'restart-show', 'play-show', 'environment-select', 'environment-input', 'camera-view', 'floor-mode', 'floor-grid-toggle', 'quality-select', 'particle-blend', 'bokeh-shape',
       'bloom-toggle', 'dof-toggle', 'shadow-toggle', 'adaptive-toggle', 'predictive-load-toggle',
       'optimize-particles', 'optimize-resolution', 'optimize-volume', 'optimize-lighting', 'optimize-post',
       'sound-toggle', 'sound-status',
@@ -745,6 +745,12 @@ export class AppUI extends EventTarget {
       this.store.set('quality.particleBlend', value);
       this.dispatchEvent(new CustomEvent('statechange', { detail: { path: 'quality.particleBlend', value } }));
     });
+    this.elements.bokehshape.value = this.state.quality.bokehShape;
+    this.elements.bokehshape.addEventListener('change', () => {
+      const value = this.elements.bokehshape.value;
+      this.store.set('quality.bokehShape', value);
+      this.dispatchEvent(new CustomEvent('statechange', { detail: { path: 'quality.bokehShape', value } }));
+    });
     for (const [element, key] of [[this.elements.bloomtoggle, 'bloom'], [this.elements.doftoggle, 'depthOfField'], [this.elements.shadowtoggle, 'shadows'], [this.elements.adaptivetoggle, 'adaptive'], [this.elements.predictiveloadtoggle, 'predictiveLoad']]) {
       element.checked = this.state.quality[key];
       element.addEventListener('change', () => {
@@ -982,6 +988,7 @@ export class AppUI extends EventTarget {
     this.elements.floorgridtoggle.checked = this.state.world.floorGrid;
     this.elements.qualityselect.value = this.state.quality.preset;
     this.elements.particleblend.value = this.state.quality.particleBlend;
+    this.elements.bokehshape.value = this.state.quality.bokehShape;
     this.elements.bloomtoggle.checked = this.state.quality.bloom;
     this.elements.doftoggle.checked = this.state.quality.depthOfField;
     this.elements.shadowtoggle.checked = this.state.quality.shadows;

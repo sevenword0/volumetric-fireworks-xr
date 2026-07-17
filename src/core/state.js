@@ -7,6 +7,7 @@ import {
 import { DEFAULT_OPTIMIZATION_TARGETS } from './particle-load-guard.js';
 import { MAX_PARTICLE_AFTERIMAGE, MIN_PARTICLE_AFTERIMAGE } from './particle-afterimage.js';
 import { MAX_BOKEH_GAMMA, MIN_BOKEH_GAMMA } from './bokeh-response.js';
+import { DEFAULT_BOKEH_SHAPE, sanitizeBokehShape } from './bokeh-shapes.js';
 import { MAX_RING_PARTICLE_SCALE, MIN_RING_PARTICLE_SCALE } from './ring-particles.js';
 import { MAX_TRAIL_PARTICLE_SCALE, MIN_TRAIL_PARTICLE_SCALE } from './trail-particles.js';
 
@@ -78,6 +79,7 @@ export const DEFAULT_STATE = Object.freeze({
     bokehScale: 0.65,
     bokehSamples: 13,
     bokehGamma: 1,
+    bokehShape: DEFAULT_BOKEH_SHAPE,
     particleBlend: 'additive',
     shadows: true,
     adaptive: true,
@@ -178,6 +180,7 @@ export function sanitizeState(candidate = {}) {
       bokehScale: finite(candidate.quality?.bokehScale, DEFAULT_STATE.quality.bokehScale, 0, 2),
       bokehSamples: integer(candidate.quality?.bokehSamples, DEFAULT_STATE.quality.bokehSamples, MIN_BOKEH_SAMPLES, MAX_BOKEH_SAMPLES),
       bokehGamma: finite(candidate.quality?.bokehGamma, DEFAULT_STATE.quality.bokehGamma, MIN_BOKEH_GAMMA, MAX_BOKEH_GAMMA),
+      bokehShape: sanitizeBokehShape(candidate.quality?.bokehShape),
       particleBlend: allowed(candidate.quality?.particleBlend, ['additive', 'screen', 'alpha'], DEFAULT_STATE.quality.particleBlend),
       shadows: candidate.quality?.shadows !== false,
       adaptive: candidate.quality?.adaptive !== false,

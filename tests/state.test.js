@@ -115,13 +115,14 @@ test('global trail particle amount persists and can fully disable trails', () =>
 });
 
 test('unknown enum values fall back instead of entering the renderer', () => {
-  const state = sanitizeState({ launchLayout: 'unsafe', tool: 'laser', world: { environment: 'url', floor: 'lava' }, quality: { preset: 'ultra', particleBlend: 'burn' }, show: { choreographyPreset: 'unsafe', directionMode: 'backward' } });
+  const state = sanitizeState({ launchLayout: 'unsafe', tool: 'laser', world: { environment: 'url', floor: 'lava' }, quality: { preset: 'ultra', particleBlend: 'burn', bokehShape: 'diamond' }, show: { choreographyPreset: 'unsafe', directionMode: 'backward' } });
   assert.equal(state.launchLayout, 'single');
   assert.equal(state.tool, 'camera');
   assert.equal(state.world.environment, 'lake');
   assert.equal(state.world.floor, 'water');
   assert.equal(state.quality.preset, 'auto');
   assert.equal(state.quality.particleBlend, 'additive');
+  assert.equal(state.quality.bokehShape, 'circle');
   assert.equal(state.show.choreographyPreset, 'balanced');
   assert.equal(state.show.directionMode, 'music');
 });
@@ -159,13 +160,13 @@ test('a saved choreography preset restores its own missing control defaults', ()
 
 test('visual effects and impact sound settings persist after sanitization', () => {
   const state = sanitizeState({
-    quality: { fireworkBrightness: 1.8, bloom: false, bloomStrength: 1.4, bloomRadius: 0.3, bloomThreshold: 1.1, saturation: 1.6, motionBlur: 0.8, particleAfterimage: 0.64, depthOfField: false, focusDistance: 94, focusRange: 18, bokehScale: 1.2, bokehSamples: 21, bokehGamma: 1.75, particleBlend: 'screen', predictiveLoad: false, autoTargets: { particles: false, resolution: false, volume: false, lighting: false, postProcessing: false } },
+    quality: { fireworkBrightness: 1.8, bloom: false, bloomStrength: 1.4, bloomRadius: 0.3, bloomThreshold: 1.1, saturation: 1.6, motionBlur: 0.8, particleAfterimage: 0.64, depthOfField: false, focusDistance: 94, focusRange: 18, bokehScale: 1.2, bokehSamples: 21, bokehGamma: 1.75, bokehShape: 'heart', particleBlend: 'screen', predictiveLoad: false, autoTargets: { particles: false, resolution: false, volume: false, lighting: false, postProcessing: false } },
     sound: { enabled: false, volume: 0.35 },
     show: { musicVolume: 0.42 },
   });
   assert.deepEqual(state.quality, {
     preset: 'auto', fireworkBrightness: 1.8, bloom: false, bloomStrength: 1.4, bloomRadius: 0.3, bloomThreshold: 1.1,
-    saturation: 1.6, motionBlur: 0.8, particleAfterimage: 0.64, depthOfField: false, focusDistance: 94, focusRange: 18, bokehScale: 1.2, bokehSamples: 21, bokehGamma: 1.75,
+    saturation: 1.6, motionBlur: 0.8, particleAfterimage: 0.64, depthOfField: false, focusDistance: 94, focusRange: 18, bokehScale: 1.2, bokehSamples: 21, bokehGamma: 1.75, bokehShape: 'heart',
     particleBlend: 'screen', shadows: true, adaptive: true, predictiveLoad: false,
     autoTargets: { particles: false, resolution: false, volume: false, lighting: false, postProcessing: false },
   });
@@ -202,10 +203,12 @@ test('export is versioned and reset restores defaults', () => {
   const store = createAppState(memoryStorage());
   store.set('tool', 'gust');
   store.set('world.floorGrid', false);
+  store.set('quality.bokehShape', 'star');
   const exported = JSON.parse(store.export());
   assert.equal(exported.version, 1);
   assert.equal(exported.state.tool, 'gust');
   assert.equal(exported.state.world.floorGrid, false);
+  assert.equal(exported.state.quality.bokehShape, 'star');
   store.reset();
   assert.deepEqual(store.state, DEFAULT_STATE);
 });

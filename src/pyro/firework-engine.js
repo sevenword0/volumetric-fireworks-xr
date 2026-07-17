@@ -1,6 +1,8 @@
 import * as THREE from 'three/webgpu';
-import { instancedBufferAttribute, modelViewMatrix, mrt, output, positionPrevious, positionView, shapeCircle, smoothstep, subBuild, uniform, uv, vec4 } from 'three/tsl';
+import { instancedBufferAttribute, mix, modelViewMatrix, mrt, output, positionPrevious, positionView, shapeCircle, smoothstep, subBuild, uniform, uv, vec4 } from 'three/tsl';
 import { PARTICLE_BOKEH_GEOMETRY_GUARD, PARTICLE_BOKEH_SPRITE_EXPANSION } from '../core/bokeh-response.js';
+import { bokehApertureMask } from '../core/bokeh-shape-nodes.js';
+import { bokehShapeIndex } from '../core/bokeh-shapes.js';
 import { PARTICLE_FOCUS_TARGET } from '../core/focus-depth.js';
 import { PARTICLE_AFTERIMAGE_TARGET } from '../core/particle-afterimage.js';
 import { particleLoadLevel, particleLoadProfile } from '../core/particle-load-guard.js';
@@ -169,6 +171,7 @@ export class FireworkEngine extends EventTarget {
     this.focusDistanceNode = uniform(finite(state.quality?.focusDistance, 70));
     this.focusRangeNode = uniform(finite(state.quality?.focusRange, 26));
     this.focusBokehScaleNode = uniform(finite(state.quality?.bokehScale, 0.65));
+    this.focusBokehShapeNode = uniform(bokehShapeIndex(state.quality?.bokehShape), 'int');
     const particleViewDistance = modelViewMatrix.mul(vec4(this.particlePositionNode, 1)).z.negate();
     const focusError = particleViewDistance.sub(this.focusDistanceNode).abs();
     const safeFocusRange = this.focusRangeNode.max(0.001);
@@ -186,7 +189,10 @@ export class FireworkEngine extends EventTarget {
       .sub(0.5)
       .mul(this.particleBokehGeometryExpansionNode.div(this.particleBokehExpansionNode.max(0.001)))
       .add(0.5);
-    this.particleOpacityNode = instancedBufferAttribute(this.alphaAttribute).mul(shapeCircle(guardedCircleUV));
+    const circleMask = shapeCircle(guardedCircleUV);
+    const apertureMask = bokehApertureMask(guardedCircleUV, this.focusBokehShapeNode);
+    const apertureInfluence = circleOfConfusion.mul(this.focusEffectActiveNode).clamp(0, 1);
+    this.particleOpacityNode = instancedBufferAttribute(this.alphaAttribute).mul(mix(circleMask, apertureMask, apertureInfluence));
     this.renderParticleOpacityNode = this.particleOpacityNode.div(this.particleBokehExpansionNode.sqrt());
     material.positionNode = this.particlePositionNode;
     material.colorNode = this.particleColorNode;
@@ -268,16 +274,18 @@ export class FireworkEngine extends EventTarget {
     return next;
   }
 
-  setFocusEffect({ active, distance, range, scale } = {}) {
+  setFocusEffect({ active, distance, range, scale, shape } = {}) {
     if (active !== undefined) this.focusEffectActiveNode.value = active ? 1 : 0;
     if (distance !== undefined) this.focusDistanceNode.value = Math.max(0.001, finite(distance, finite(this.focusDistanceNode.value, 70)));
     if (range !== undefined) this.focusRangeNode.value = Math.max(0.001, finite(range, finite(this.focusRangeNode.value, 26)));
     if (scale !== undefined) this.focusBokehScaleNode.value = Math.max(0, finite(scale, finite(this.focusBokehScaleNode.value, 0.65)));
+    if (shape !== undefined) this.focusBokehShapeNode.value = bokehShapeIndex(shape);
     return {
       active: this.focusEffectActiveNode.value > 0,
       distance: this.focusDistanceNode.value,
       range: this.focusRangeNode.value,
       scale: this.focusBokehScaleNode.value,
+      shapeIndex: this.focusBokehShapeNode.value,
     };
   }
 

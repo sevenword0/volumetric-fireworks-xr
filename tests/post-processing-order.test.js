@@ -47,7 +47,9 @@ test('a water-sized colorless hemisphere supplies focus depth across the sky', a
   assert.match(worldSource, /new THREE\.SphereGeometry\([\s\S]*Math\.PI \/ 2/);
   assert.match(worldSource, /this\.focusScene = new THREE\.Scene\(\)/);
   assert.match(worldSource, /material\.outputNode = vec4\(positionView\.z\.negate\(\), 1, 0, 1\)/);
-  assert.match(worldSource, /material\.blending = THREE\.AdditiveBlending/);
+  assert.match(worldSource, /material\.blending = THREE\.CustomBlending/);
+  assert.match(worldSource, /material\.blendSrc = THREE\.OneFactor/);
+  assert.match(worldSource, /material\.blendDst = THREE\.OneFactor/);
   assert.match(worldSource, /this\.focusScene\.add\(hemisphere\)/);
   assert.doesNotMatch(mainSource, /scenePass\.getTextureNode\(FOCUS_HEMISPHERE_TARGET\)/);
   assert.match(worldSource, /material\.depthWrite = false/);
