@@ -89,6 +89,7 @@ let showCues = [];
 let nextCueIndex = 0;
 let lastShowTime = 0;
 let lastShowCueLaunch = null;
+let lastManualLaunchPlacement = null;
 let started = false;
 let adaptiveLevel = 0;
 let fpsAverage = 60;
@@ -202,6 +203,10 @@ async function initialize() {
           minPolarAngle: controls.minPolarAngle,
           maxPolarAngle: controls.maxPolarAngle,
           panEnabled: controls.enablePan,
+        },
+        launchPlacement: {
+          configured: { ...state.launch },
+          lastManual: lastManualLaunchPlacement ? { ...lastManualLaunchPlacement } : null,
         },
         effects: {
           bloom: state.quality.bloom,
@@ -703,6 +708,8 @@ function createCubeCallbacks() {
 }
 
 const RANGE_BINDINGS_FOR_CUBE = Object.freeze({
+  'launch.centerX': 'launch-center-x',
+  'launch.positionRange': { id: 'launch-position-range', scale: 0.01 },
   'physics.gravity': 'gravity',
   'physics.drag': { id: 'drag', scale: BASE_AIR_DRAG },
   'physics.particleLifetime': 'particle-lifetime',
@@ -737,9 +744,22 @@ function refreshShowLoadPlan() {
 function launchPreset(preset, layout = 'single', options = {}) {
   if (!engine || !preset) return;
   void armFireworkSound();
-  if (state.quality.predictiveLoad) particleLoadPlanner.scheduleLaunch(preset, layout, engine.time, { ...options, lifetimeScale: state.physics.particleLifetime });
-  const count = engine.launchLayout(preset, layout, options);
-  ui.toast(`${preset.name} · ${layout.toUpperCase()} ${count}발`);
+  const launchOptions = {
+    ...options,
+    x: options.x ?? state.launch.centerX,
+    spread: options.spread ?? state.launch.positionRange,
+  };
+  if (state.quality.predictiveLoad) particleLoadPlanner.scheduleLaunch(preset, layout, engine.time, { ...launchOptions, lifetimeScale: state.physics.particleLifetime });
+  const count = engine.launchLayout(preset, layout, launchOptions);
+  lastManualLaunchPlacement = {
+    layout,
+    centerX: launchOptions.x,
+    positionRange: launchOptions.spread,
+    count,
+  };
+  canvas.dataset.launchCenterX = String(launchOptions.x);
+  canvas.dataset.launchPositionRange = String(launchOptions.spread);
+  ui.toast(`${preset.name} · ${layout.toUpperCase()} ${count}발 · X ${Math.round(launchOptions.x)}m / ${Math.round(launchOptions.spread * 100)}%`);
 }
 
 function showCueLaunchOptions(cue) {

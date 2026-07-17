@@ -1,5 +1,14 @@
 import * as THREE from 'three/webgpu';
-import { BASE_AIR_DRAG, MAX_AIR_DRAG, MAX_POST_BURST_LIFETIME, MIN_POST_BURST_LIFETIME } from '../core/state.js';
+import {
+  BASE_AIR_DRAG,
+  MAX_AIR_DRAG,
+  MAX_LAUNCH_CENTER_X,
+  MAX_LAUNCH_POSITION_RANGE,
+  MAX_POST_BURST_LIFETIME,
+  MIN_LAUNCH_CENTER_X,
+  MIN_LAUNCH_POSITION_RANGE,
+  MIN_POST_BURST_LIFETIME,
+} from '../core/state.js';
 
 const FACE_SIZE = 0.128;
 const HALF = FACE_SIZE / 2;
@@ -53,6 +62,8 @@ export class XRCubeUI extends EventTarget {
           { label: '현재 불꽃', value: () => this.callbacks.getPresetName?.() ?? '—', action: () => this.callbacks.nextPreset?.() },
           { label: '이전 프리셋', value: () => '◀', action: () => this.callbacks.previousPreset?.() },
           { label: '다음 프리셋', value: () => '▶', action: () => this.callbacks.nextPreset?.() },
+          { label: '발사 중심', value: () => `${Math.round(this.state.launch.centerX)}m`, action: () => this.adjust('launch.centerX', 4, MIN_LAUNCH_CENTER_X, MAX_LAUNCH_CENTER_X) },
+          { label: '위치 범위', value: () => `${Math.round(this.state.launch.positionRange * 100)}%`, action: () => this.adjust('launch.positionRange', 0.25, MIN_LAUNCH_POSITION_RANGE, MAX_LAUNCH_POSITION_RANGE) },
           { label: '발사', value: () => 'LAUNCH', action: () => this.callbacks.launch?.() },
         ],
       },

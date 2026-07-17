@@ -17,6 +17,8 @@ import {
 import { BASE_AIR_DRAG } from '../core/state.js';
 
 const FORMATTERS = {
+  'launch.centerX': (value) => `${Math.round(value)}m`,
+  'launch.positionRange': (value) => `${Math.round(value * 100)}%`,
   'physics.gravity': (value) => `${value.toFixed(2)} g`,
   'physics.drag': (value) => `${(value / BASE_AIR_DRAG).toFixed(2)}×`,
   'physics.particleLifetime': (value) => `${value.toFixed(2)}×`,
@@ -53,6 +55,8 @@ const FORMATTERS = {
 };
 
 const RANGE_BINDINGS = [
+  ['launch-center-x', 'launch.centerX'],
+  ['launch-position-range', 'launch.positionRange', 0.01],
   ['gravity', 'physics.gravity'],
   ['drag', 'physics.drag', BASE_AIR_DRAG],
   ['particle-lifetime', 'physics.particleLifetime'],
