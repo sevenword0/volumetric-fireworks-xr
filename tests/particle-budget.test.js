@@ -119,6 +119,15 @@ test('music choreography reaches shell velocity, burst scale, mirrored salvos, a
   hueEngine.dispose();
 });
 
+test('manual launch center and position range move and scale layout placements', () => {
+  const engine = createEngine(128);
+  const count = engine.launchLayout(FIREWORK_PRESETS[0], 'pair', { x: 12, spread: 2 });
+  assert.equal(count, 2);
+  assert.deepEqual(engine.scheduled.map((item) => item.x), [-4, 28]);
+  assert.ok(engine.scheduled.every((item) => item.z === 0));
+  engine.dispose();
+});
+
 test('scaled music shells keep enough lifetime to reach their burst event', () => {
   const engine = createEngine(1000);
   const preset = FIREWORK_PRESETS[0];

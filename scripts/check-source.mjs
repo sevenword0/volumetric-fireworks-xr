@@ -40,7 +40,7 @@ for (const file of files) {
 }
 
 const html = await readFile(path.join(root, 'index.html'), 'utf8');
-for (const marker of ['id="stage"', 'id="welcome-dialog"', 'id="audio-input"', 'id="xr-button"', 'id="launch-button"', 'id="camera-view"', 'id="drag"', 'id="particle-lifetime"', 'id="firework-brightness"', 'id="dof-toggle"', 'id="music-volume"', 'id="show-choreography"', 'id="show-direction"', 'id="preview-show"', 'id="show-launch-power"', 'id="show-explosion-power"', 'id="show-sequence"', 'id="show-crossfire"', 'id="show-color-variation"', 'id="predictive-load-toggle"', 'id="optimization-status"', 'id="optimize-particles"', 'id="optimize-resolution"', 'id="optimize-volume"', 'id="optimize-lighting"', 'id="optimize-post"', 'id="ui-visibility-button"', 'id="fullscreen-button"']) {
+for (const marker of ['id="stage"', 'id="welcome-dialog"', 'id="audio-input"', 'id="xr-button"', 'id="launch-button"', 'id="camera-view"', 'id="drag"', 'id="particle-lifetime"', 'id="launch-center-x"', 'id="launch-position-range"', 'id="firework-brightness"', 'id="dof-toggle"', 'id="music-volume"', 'id="show-choreography"', 'id="show-direction"', 'id="preview-show"', 'id="show-launch-power"', 'id="show-explosion-power"', 'id="show-sequence"', 'id="show-crossfire"', 'id="show-color-variation"', 'id="predictive-load-toggle"', 'id="optimization-status"', 'id="optimize-particles"', 'id="optimize-resolution"', 'id="optimize-volume"', 'id="optimize-lighting"', 'id="optimize-post"', 'id="ui-visibility-button"', 'id="fullscreen-button"']) {
   if (!html.includes(marker)) throw new Error(`index.html missing ${marker}`);
 }
 
