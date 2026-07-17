@@ -449,6 +449,7 @@ function setupUIEvents() {
     }
   });
   ui.addEventListener('floormode', (event) => world.setFloorMode(event.detail.value));
+  ui.addEventListener('floorgrid', (event) => world.setFloorGridVisible(event.detail.value));
   ui.addEventListener('cameraview', (event) => setCameraView(event.detail.value));
   ui.addEventListener('quality', (event) => applyQuality(event.detail.value === 'auto' ? resolveQuality() : event.detail.value));
   ui.addEventListener('qualitytoggle', (event) => {
@@ -748,6 +749,12 @@ function createCubeCallbacks() {
       store.set('world.floor', next);
       world.setFloorMode(next);
       ui.elements.floormode.querySelectorAll('button').forEach((button) => button.classList.toggle('active', button.dataset.value === next));
+    },
+    toggleFloorGrid: () => {
+      const value = !state.world.floorGrid;
+      store.set('world.floorGrid', value);
+      ui.elements.floorgridtoggle.checked = value;
+      world.setFloorGridVisible(value);
     },
     toggleVolume: () => {
       const value = state.volume.smoke > 0 ? 0 : 0.7;

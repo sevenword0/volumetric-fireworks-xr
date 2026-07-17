@@ -88,6 +88,7 @@ export class WorldScene extends EventTarget {
     this.createLightPool();
     this.setEnvironment(state.world.environment);
     this.setFloorMode(state.world.floor);
+    this.setFloorGridVisible(state.world.floorGrid);
   }
 
   createStarField() {
@@ -318,10 +319,17 @@ export class WorldScene extends EventTarget {
   setFloorMode(mode) {
     this.state.world.floor = mode;
     this.floor.visible = mode !== 'none';
-    this.grid.visible = mode !== 'none';
     this.reflectionNode.target.visible = mode === 'water';
     this.floor.material = mode === 'water' ? this.waterMaterial : this.matteMaterial;
     this.floor.material.needsUpdate = true;
+  }
+
+  setFloorGridVisible(visible) {
+    const enabled = visible !== false;
+    this.state.world.floorGrid = enabled;
+    this.grid.visible = enabled;
+    if (this.renderer?.domElement?.dataset) this.renderer.domElement.dataset.floorGridVisible = String(enabled);
+    return enabled;
   }
 
   setEnvironment(name) {
