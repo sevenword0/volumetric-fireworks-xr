@@ -2,10 +2,12 @@ import * as THREE from 'three/webgpu';
 import {
   BASE_AIR_DRAG,
   MAX_AIR_DRAG,
+  MAX_BOKEH_SAMPLES,
   MAX_CAMERA_FOV,
   MAX_LAUNCH_CENTER_X,
   MAX_LAUNCH_POSITION_RANGE,
   MAX_POST_BURST_LIFETIME,
+  MIN_BOKEH_SAMPLES,
   MIN_CAMERA_FOV,
   MIN_LAUNCH_CENTER_X,
   MIN_LAUNCH_POSITION_RANGE,
@@ -96,6 +98,7 @@ export class XRCubeUI extends EventTarget {
         rows: [
           { label: '품질', value: () => this.state.quality.preset.toUpperCase(), action: () => this.callbacks.nextQuality?.() },
           { label: '밝기 · 입자', value: () => `${Math.round(this.state.quality.fireworkBrightness * 100)}% · ${this.callbacks.getParticleCount?.() ?? 0}`, action: () => this.adjust('quality.fireworkBrightness', 0.25, 0.25, 3) },
+          { label: '보케 샘플', value: () => `${this.state.quality.bokehSamples} TAP`, action: () => this.adjust('quality.bokehSamples', 4, MIN_BOKEH_SAMPLES, MAX_BOKEH_SAMPLES) },
           { label: '큐브 회전', value: () => 'NEXT FACE', action: () => this.rotateFace(1) },
           { label: 'XR 종료', value: () => 'EXIT', action: () => this.callbacks.exitXR?.() },
         ],
