@@ -3,12 +3,14 @@ import * as THREE from 'three/webgpu';
 import { convertToTexture, int, mrt, output, pass, saturation, uniform, vec4, velocity } from 'three/tsl';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { bloom } from 'three/addons/tsl/display/BloomNode.js';
+import { afterImage } from 'three/addons/tsl/display/AfterImageNode.js';
 import { motionBlur } from 'three/addons/tsl/display/MotionBlur.js';
 import WebGPU from 'three/addons/capabilities/WebGPU.js';
 import { AudioShowController, findCueIndexAtTime, getPresetForCue } from './audio/audio-show.js';
 import { FireworkSoundEngine } from './audio/firework-sound.js';
 import { PARTICLE_BOKEH_RADIUS_PIXELS } from './core/bokeh-response.js';
 import { PARTICLE_FOCUS_TARGET } from './core/focus-depth.js';
+import { PARTICLE_AFTERIMAGE_TARGET, resolveParticleAfterimage } from './core/particle-afterimage.js';
 import { ParticleLoadGuard, applyLoadOptimizationTargets, particleLoadLevel } from './core/particle-load-guard.js';
 import { ParticleLoadPlanner } from './core/particle-load-planner.js';
 import { bokehDepthOfField } from './core/post-effects.js';
@@ -82,6 +84,8 @@ let bokehBloomNode;
 let scenePass;
 let saturationAmount;
 let motionBlurAmount;
+let particleAfterimageAmount;
+let particleAfterimageDampAmount;
 let focusDistanceAmount;
 let focusRangeAmount;
 let bokehScaleAmount;
@@ -113,6 +117,8 @@ let showLoadPlan = { eventCount: 0, windowCount: 0, windows: [] };
 let activeQuality = 'medium';
 let pipelineWarmupMs = 0;
 let pendingRuntimeResolutionSync = false;
+let particleAfterimageRuntimeWasActive = false;
+let particleAfterimageHistoryResetFrames = 0;
 const pointer = new THREE.Vector2();
 const raycaster = new THREE.Raycaster();
 const interactionPlane = new THREE.Plane();
@@ -226,6 +232,10 @@ async function initialize() {
           bloomThreshold: state.quality.bloomThreshold,
           saturation: state.quality.saturation,
           motionBlur: state.quality.motionBlur,
+          particleAfterimage: state.quality.particleAfterimage,
+          particleAfterimageDamp: particleAfterimageDampAmount?.value ?? 0,
+          particleAfterimageTarget: PARTICLE_AFTERIMAGE_TARGET,
+          particleAfterimageRuntimeActive: canvas.dataset.particleAfterimageRuntimeActive === 'true',
           particleMotionVectors: true,
           depthOfField: state.quality.depthOfField,
           focusDistance: state.quality.focusDistance,
@@ -295,7 +305,7 @@ async function initialize() {
 
 function setupPostProcessing() {
   scenePass = pass(scene, camera);
-  const sceneMRT = mrt({ output, velocity, [PARTICLE_FOCUS_TARGET]: vec4(0) });
+  const sceneMRT = mrt({ output, velocity, [PARTICLE_FOCUS_TARGET]: vec4(0), [PARTICLE_AFTERIMAGE_TARGET]: vec4(0) });
   const nativeMerge = sceneMRT.merge.bind(sceneMRT);
   sceneMRT.merge = (materialMRT) => {
     const mergedMRT = nativeMerge(materialMRT);
@@ -307,15 +317,22 @@ function setupPostProcessing() {
   scenePass.setMRT(sceneMRT);
   const sceneColor = scenePass.getTextureNode();
   const particleFocusTexture = scenePass.getTextureNode(PARTICLE_FOCUS_TARGET);
+  const particleAfterimageTexture = scenePass.getTextureNode(PARTICLE_AFTERIMAGE_TARGET);
   saturationAmount = uniform(state.quality.saturation);
   motionBlurAmount = uniform(state.quality.motionBlur);
+  particleAfterimageAmount = uniform(0);
+  particleAfterimageDampAmount = uniform(0);
   focusDistanceAmount = uniform(state.quality.focusDistance);
   focusRangeAmount = uniform(state.quality.focusRange);
   bokehScaleAmount = uniform(state.quality.bokehScale);
   bokehSamplesAmount = uniform(state.quality.bokehSamples, 'int');
   bokehGammaAmount = uniform(state.quality.bokehGamma);
+  const accumulatedParticleAfterimage = afterImage(particleAfterimageTexture, particleAfterimageDampAmount);
+  const particleAfterimageResidual = accumulatedParticleAfterimage.sub(particleAfterimageTexture).max(0).mul(particleAfterimageAmount);
+  const sceneWithParticleAfterimage = vec4(sceneColor.rgb.add(particleAfterimageResidual.rgb), sceneColor.a);
+  const sceneWithParticleAfterimageTexture = convertToTexture(sceneWithParticleAfterimage);
   const velocityTexture = scenePass.getTextureNode('velocity').mul(motionBlurAmount);
-  const motionColor = motionBlur(sceneColor, velocityTexture, int(8));
+  const motionColor = motionBlur(sceneWithParticleAfterimageTexture, velocityTexture, int(8));
   bloomNode = bloom(motionColor);
   const composite = motionColor.add(bloomNode);
   renderPipeline = new THREE.RenderPipeline(renderer);
@@ -332,8 +349,24 @@ function setupPostProcessing() {
   syncPostProcessing();
 }
 
+function syncParticleAfterimageRuntime() {
+  if (!particleAfterimageAmount || !particleAfterimageDampAmount) return null;
+  const runtimeActive = usePostProcessing && runtimePostProcessing && !renderer.xr.isPresenting && !renderFailedOver;
+  const resolved = resolveParticleAfterimage(state.quality.particleAfterimage, runtimeActive);
+  if (resolved.active && !particleAfterimageRuntimeWasActive) particleAfterimageHistoryResetFrames = 1;
+  particleAfterimageAmount.value = resolved.strength;
+  particleAfterimageDampAmount.value = particleAfterimageHistoryResetFrames > 0 ? 0 : resolved.damp;
+  particleAfterimageRuntimeWasActive = resolved.active;
+  canvas.dataset.particleAfterimage = String(state.quality.particleAfterimage);
+  canvas.dataset.particleAfterimageDamp = String(particleAfterimageDampAmount.value);
+  canvas.dataset.particleAfterimageTarget = PARTICLE_AFTERIMAGE_TARGET;
+  canvas.dataset.particleAfterimageScope = 'particlesOnly';
+  canvas.dataset.particleAfterimageRuntimeActive = String(resolved.active);
+  return resolved;
+}
+
 function syncPostProcessing() {
-  if (!bloomNode || !bokehBloomNode || !saturationAmount || !motionBlurAmount || !focusDistanceAmount || !focusRangeAmount || !bokehScaleAmount || !bokehSamplesAmount || !bokehGammaAmount) return;
+  if (!bloomNode || !bokehBloomNode || !saturationAmount || !motionBlurAmount || !particleAfterimageAmount || !particleAfterimageDampAmount || !focusDistanceAmount || !focusRangeAmount || !bokehScaleAmount || !bokehSamplesAmount || !bokehGammaAmount) return;
   for (const activeBloomNode of [bloomNode, bokehBloomNode]) {
     activeBloomNode.threshold.value = state.quality.bloomThreshold;
     activeBloomNode.strength.value = state.quality.bloom ? state.quality.bloomStrength : 0;
@@ -364,7 +397,9 @@ function syncPostProcessing() {
   usePostProcessing = state.quality.bloom
     || (state.quality.depthOfField && state.quality.bokehScale > 0.001)
     || state.quality.motionBlur > 0.001
+    || state.quality.particleAfterimage > 0.001
     || Math.abs(state.quality.saturation - 1) > 0.001;
+  syncParticleAfterimageRuntime();
 }
 
 function getActiveRenderPipeline() {
@@ -974,13 +1009,16 @@ function animate(now) {
   const immediateParticleLevel = particleLoadLevel(engine.activeCount / engine.maxParticles);
   runtimePostProcessing = loadGuardState.postProcessing
     && (!state.quality.autoTargets.postProcessing || immediateParticleLevel === 0);
+  syncParticleAfterimageRuntime();
   engine.setFocusEffect({
     active: state.quality.depthOfField && state.quality.bokehScale > 0 && usePostProcessing && runtimePostProcessing && !renderer.xr.isPresenting && !renderFailedOver,
   });
 
   try {
-    if (usePostProcessing && runtimePostProcessing && !renderer.xr.isPresenting && !renderFailedOver) getActiveRenderPipeline().render();
-    else renderer.render(scene, camera);
+    if (usePostProcessing && runtimePostProcessing && !renderer.xr.isPresenting && !renderFailedOver) {
+      getActiveRenderPipeline().render();
+      if (particleAfterimageHistoryResetFrames > 0) particleAfterimageHistoryResetFrames -= 1;
+    } else renderer.render(scene, camera);
   } catch (error) {
     if (!renderFailedOver) {
       console.warn('Post-processing path failed, using direct render', error);

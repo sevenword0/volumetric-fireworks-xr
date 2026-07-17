@@ -153,7 +153,7 @@
             <label><span>중력 <output id="gravity-out">1.00 g</output></span><input id="gravity" type="range" min="0" max="2" value="1" step="0.05" /></label>
             <label><span>공기 저항 (전역) <output id="drag-out">1.00×</output></span><input id="drag" type="range" min="0" max="50" value="1" step="0.1" /></label>
             <label><span>폭발 후 파티클 수명 <output id="particle-lifetime-out">1.00×</output></span><input id="particle-lifetime" type="range" min="0.25" max="5" value="1" step="0.05" /></label>
-            <label title="링·이중 링·새턴의 고리 부분과 중심 링에만 적용"><span>고리 파티클량 <output id="ring-particle-scale-out">100%</output></span><input id="ring-particle-scale" type="range" min="25" max="300" value="100" step="5" /></label>
+            <label title="링·이중 링·새턴의 고리 부분과 중심 링에만 적용"><span>고리 파티클량 (전역) <output id="ring-particle-scale-out">100%</output></span><input id="ring-particle-scale" type="range" min="25" max="300" value="100" step="5" /></label>
             <label title="수동·배치·음악 쇼 모든 포탄의 최초 상승 속도에 적용"><span>최초 발사 강도 (전역) <output id="initial-launch-power-out">100%</output></span><input id="initial-launch-power" type="range" min="50" max="200" value="100" step="5" /></label>
             <label><span>발사 중심 X <output id="launch-center-x-out">0m</output></span><input id="launch-center-x" type="range" min="-40" max="40" value="0" step="1" /></label>
             <label><span>발사 위치 범위 <output id="launch-position-range-out">100%</output></span><input id="launch-position-range" type="range" min="10" max="250" value="100" step="5" /></label>
@@ -216,6 +216,7 @@
               <label><span>블룸 임계값 <output id="bloom-threshold-out">0.78</output></span><input id="bloom-threshold" type="range" min="0" max="2" value="0.78" step="0.02" /></label>
               <label><span>채도 <output id="saturation-out">100%</output></span><input id="saturation" type="range" min="0" max="2" value="1" step="0.05" /></label>
               <label><span>파티클 이동결 모션 블러 <output id="motion-blur-out">62%</output></span><input id="motion-blur" type="range" min="0" max="3" value="0.62" step="0.01" /></label>
+              <label title="파티클 발광만 시간 누적합니다. 0%는 끔이며 배경·수면은 잔상에 포함되지 않습니다"><span>파티클 잔상 <output id="particle-afterimage-out">42%</output></span><input id="particle-afterimage" type="range" min="0" max="100" value="42" step="2" /></label>
               <label><span>초점 거리 <output id="focus-distance-out">70m</output></span><input id="focus-distance" type="range" min="2" max="300" value="70" step="1" /></label>
               <label><span>초점 폭 <output id="focus-range-out">26m</output></span><input id="focus-range" type="range" min="1" max="160" value="26" step="1" /></label>
               <label><span>보케 크기 <output id="bokeh-scale-out">0.65×</output></span><input id="bokeh-scale" type="range" min="0" max="2" value="0.65" step="0.05" /></label>

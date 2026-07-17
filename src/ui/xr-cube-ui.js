@@ -1,5 +1,6 @@
 import * as THREE from 'three/webgpu';
 import { MAX_BOKEH_GAMMA, MIN_BOKEH_GAMMA } from '../core/bokeh-response.js';
+import { MAX_PARTICLE_AFTERIMAGE, MIN_PARTICLE_AFTERIMAGE } from '../core/particle-afterimage.js';
 import { MAX_RING_PARTICLE_SCALE, MIN_RING_PARTICLE_SCALE } from '../core/ring-particles.js';
 import {
   BASE_AIR_DRAG,
@@ -108,6 +109,7 @@ export class XRCubeUI extends EventTarget {
         rows: [
           { label: '품질', value: () => this.state.quality.preset.toUpperCase(), action: () => this.callbacks.nextQuality?.() },
           { label: '밝기 · 입자', value: () => `${Math.round(this.state.quality.fireworkBrightness * 100)}% · ${this.callbacks.getParticleCount?.() ?? 0}`, action: () => this.adjust('quality.fireworkBrightness', 0.25, 0.25, 3) },
+          { label: '파티클 잔상', value: () => `${Math.round(this.state.quality.particleAfterimage * 100)}%`, action: () => this.adjust('quality.particleAfterimage', 0.2, MIN_PARTICLE_AFTERIMAGE, MAX_PARTICLE_AFTERIMAGE) },
           { label: '보케 샘플', value: () => `${this.state.quality.bokehSamples} TAP`, action: () => this.adjust('quality.bokehSamples', 4, MIN_BOKEH_SAMPLES, MAX_BOKEH_SAMPLES) },
           { label: '보케 감마', value: () => `${this.state.quality.bokehGamma.toFixed(2)} G`, action: () => this.adjust('quality.bokehGamma', 0.25, MIN_BOKEH_GAMMA, MAX_BOKEH_GAMMA) },
           { label: '설정 복사', value: () => 'COPY JSON', action: () => this.callbacks.copySettings?.() },
