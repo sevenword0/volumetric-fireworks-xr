@@ -3,13 +3,22 @@ import {
   color,
   cos,
   normalWorldGeometry,
+  positionView,
   reflector,
   sin,
   time,
   uniform,
   uv,
   vec2,
+  vec4,
 } from 'three/tsl';
+import {
+  FOCUS_HEMISPHERE_HEIGHT_SEGMENTS,
+  FOCUS_HEMISPHERE_RADIUS,
+  FOCUS_HEMISPHERE_SURFACE_SIZE,
+  FOCUS_HEMISPHERE_TARGET,
+  FOCUS_HEMISPHERE_WIDTH_SEGMENTS,
+} from '../core/focus-hemisphere.js';
 import { enableVolumeShadowCasters } from '../core/render-layers.js';
 import { MAX_WATER_WAVE_STRENGTH, getWaterSurfaceProfile } from '../core/water-surface.js';
 
@@ -33,6 +42,9 @@ export class WorldScene extends EventTarget {
   constructor(scene, renderer, state) {
     super();
     this.scene = scene;
+    this.focusScene = new THREE.Scene();
+    this.focusScene.name = 'Particle focus proxy scene';
+    this.focusScene.background = new THREE.Color(0x000000);
     this.renderer = renderer;
     this.state = state;
     this.clock = 0;
@@ -84,6 +96,7 @@ export class WorldScene extends EventTarget {
     this.createStarField();
     this.createEnvironmentGeometry();
     this.createFloor();
+    this.createFocusHemisphere();
     this.publishWaterSurfaceMetrics();
     this.createLightPool();
     this.setEnvironment(state.world.environment);
@@ -241,7 +254,7 @@ export class WorldScene extends EventTarget {
     matteMaterial.name = 'Matte stage floor';
     this.matteMaterial = matteMaterial;
 
-    const geometry = new THREE.PlaneGeometry(180, 180, 1, 1);
+    const geometry = new THREE.PlaneGeometry(FOCUS_HEMISPHERE_SURFACE_SIZE, FOCUS_HEMISPHERE_SURFACE_SIZE, 1, 1);
     geometry.rotateX(-Math.PI / 2);
     const floor = new THREE.Mesh(geometry, waterMaterial);
     floor.name = 'Ground and water receiver';
@@ -257,6 +270,38 @@ export class WorldScene extends EventTarget {
     grid.material.opacity = 0.16;
     this.scene.add(grid);
     this.grid = grid;
+  }
+
+  createFocusHemisphere() {
+    const geometry = new THREE.SphereGeometry(
+      FOCUS_HEMISPHERE_RADIUS,
+      FOCUS_HEMISPHERE_WIDTH_SEGMENTS,
+      FOCUS_HEMISPHERE_HEIGHT_SEGMENTS,
+      0,
+      Math.PI * 2,
+      0,
+      Math.PI / 2,
+    );
+    const material = new THREE.MeshBasicNodeMaterial();
+    material.name = 'Focus-only virtual hemisphere';
+    material.outputNode = vec4(positionView.z.negate(), 1, 0, 1);
+    material.transparent = true;
+    material.blending = THREE.AdditiveBlending;
+    material.depthTest = false;
+    material.depthWrite = false;
+    material.side = THREE.DoubleSide;
+    material.toneMapped = false;
+    material.fog = false;
+
+    const hemisphere = new THREE.Mesh(geometry, material);
+    hemisphere.name = 'Particle focus virtual hemisphere';
+    hemisphere.position.y = 0.02;
+    hemisphere.renderOrder = 7;
+    hemisphere.frustumCulled = false;
+    hemisphere.raycast = () => {};
+    this.focusScene.add(hemisphere);
+    this.focusHemisphere = hemisphere;
+    this.publishFocusHemisphereMetrics();
   }
 
   createLightPool() {
@@ -424,6 +469,32 @@ export class WorldScene extends EventTarget {
     };
   }
 
+  getFocusHemisphereMetrics() {
+    return {
+      enabled: this.focusHemisphere?.visible === true,
+      target: FOCUS_HEMISPHERE_TARGET,
+      shape: 'upper-hemisphere',
+      mode: 'focus-only',
+      radius: FOCUS_HEMISPHERE_RADIUS,
+      diameter: FOCUS_HEMISPHERE_RADIUS * 2,
+      surfaceSize: FOCUS_HEMISPHERE_SURFACE_SIZE,
+      segments: [FOCUS_HEMISPHERE_WIDTH_SEGMENTS, FOCUS_HEMISPHERE_HEIGHT_SEGMENTS],
+      format: 'rg16float',
+      colorVisible: false,
+      depthWrite: false,
+    };
+  }
+
+  publishFocusHemisphereMetrics() {
+    const { dataset } = this.renderer.domElement;
+    dataset.particleFocusProxy = 'virtualHemisphere';
+    dataset.particleFocusProxyTarget = FOCUS_HEMISPHERE_TARGET;
+    dataset.particleFocusHemisphereRadius = String(FOCUS_HEMISPHERE_RADIUS);
+    dataset.particleFocusHemisphereDiameter = String(FOCUS_HEMISPHERE_RADIUS * 2);
+    dataset.particleFocusHemisphereSurfaceSize = String(FOCUS_HEMISPHERE_SURFACE_SIZE);
+    dataset.particleFocusProxyFormat = 'rg16float';
+  }
+
   publishWaterSurfaceMetrics() {
     const { dataset } = this.renderer.domElement;
     dataset.waterRoughness = String(this.waterRoughness.value);
@@ -499,11 +570,14 @@ export class WorldScene extends EventTarget {
   dispose() {
     this.customTexture?.dispose();
     this.floor.geometry.dispose();
+    this.focusHemisphere.geometry.dispose();
+    this.focusHemisphere.material.dispose();
     this.waterMaterial.dispose();
     this.matteMaterial.dispose();
     this.stars.geometry.dispose();
     this.stars.material.dispose();
     for (const light of this.lights) this.scene.remove(light);
+    this.focusScene.remove(this.focusHemisphere);
     this.scene.remove(this.floor, this.grid, this.reflectionNode.target, this.stars, ...Object.values(this.groups));
   }
 }

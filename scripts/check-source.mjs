@@ -4,7 +4,7 @@ import path from 'node:path';
 const root = process.cwd();
 const required = [
   'index.html', 'package.json', 'vite.config.js', 'public/.nojekyll',
-  'src/main.js', 'src/style.css', 'src/core/bokeh-response.js', 'src/core/clipboard.js', 'src/core/focus-depth.js', 'src/core/particle-afterimage.js', 'src/core/ring-particles.js', 'src/core/trail-particles.js', 'src/core/water-surface.js', 'src/core/particle-load-guard.js', 'src/core/particle-load-planner.js', 'src/pyro/presets.js', 'src/pyro/patterns.js',
+  'src/main.js', 'src/style.css', 'src/core/bokeh-response.js', 'src/core/clipboard.js', 'src/core/focus-depth.js', 'src/core/focus-hemisphere.js', 'src/core/particle-afterimage.js', 'src/core/ring-particles.js', 'src/core/trail-particles.js', 'src/core/water-surface.js', 'src/core/particle-load-guard.js', 'src/core/particle-load-planner.js', 'src/pyro/presets.js', 'src/pyro/patterns.js',
   'src/pyro/firework-engine.js', 'src/volume/fluid-volume.js', 'src/audio/audio-show.js', 'src/audio/show-choreography.js', 'src/audio/firework-sound.js',
   'src/ui/app-ui.js', 'src/ui/xr-cube-ui.js', 'src/scene/world.js',
   '.github/workflows/pages.yml',

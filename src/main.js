@@ -1,6 +1,6 @@
 import './style.css';
 import * as THREE from 'three/webgpu';
-import { convertToTexture, int, mrt, output, pass, saturation, uniform, vec4, velocity } from 'three/tsl';
+import { convertToTexture, int, mrt, output, pass, saturation, texture, uniform, vec4, velocity } from 'three/tsl';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { bloom } from 'three/addons/tsl/display/BloomNode.js';
 import { afterImage } from 'three/addons/tsl/display/AfterImageNode.js';
@@ -9,6 +9,7 @@ import WebGPU from 'three/addons/capabilities/WebGPU.js';
 import { AudioShowController, findCueIndexAtTime, getPresetForCue } from './audio/audio-show.js';
 import { FireworkSoundEngine } from './audio/firework-sound.js';
 import { PARTICLE_BOKEH_RADIUS_PIXELS } from './core/bokeh-response.js';
+import { FOCUS_HEMISPHERE_RADIUS, FOCUS_HEMISPHERE_SURFACE_SIZE, FOCUS_HEMISPHERE_TARGET } from './core/focus-hemisphere.js';
 import { PARTICLE_FOCUS_TARGET } from './core/focus-depth.js';
 import { PARTICLE_AFTERIMAGE_TARGET, resolveParticleAfterimage } from './core/particle-afterimage.js';
 import { ParticleLoadGuard, applyLoadOptimizationTargets, particleLoadLevel } from './core/particle-load-guard.js';
@@ -82,6 +83,7 @@ let bokehRenderPipeline;
 let bloomNode;
 let bokehBloomNode;
 let scenePass;
+let focusHemisphereRenderTarget;
 let saturationAmount;
 let motionBlurAmount;
 let particleAfterimageAmount;
@@ -103,6 +105,11 @@ let lastManualLaunchPlacement = null;
 let started = false;
 let adaptiveLevel = 0;
 let fpsAverage = 60;
+const FOCUS_HEMISPHERE_RENDER_SCALE = 0.5;
+const focusHemisphereDrawingSize = new THREE.Vector2();
+const savedFocusViewport = new THREE.Vector4();
+const savedFocusScissor = new THREE.Vector4();
+const savedFocusClearColor = new THREE.Color();
 let fpsAccumulator = 0;
 let fpsFrames = 0;
 let fpsWindowStart = performance.now();
@@ -225,6 +232,7 @@ async function initialize() {
           lastManual: lastManualLaunchPlacement ? { ...lastManualLaunchPlacement } : null,
         },
         waterSurface: world.getWaterSurfaceMetrics(),
+        focusHemisphere: world.getFocusHemisphereMetrics(),
         effects: {
           bloom: state.quality.bloom,
           fireworkBrightness: state.quality.fireworkBrightness,
@@ -238,6 +246,7 @@ async function initialize() {
           particleAfterimageTarget: PARTICLE_AFTERIMAGE_TARGET,
           particleAfterimageRuntimeActive: canvas.dataset.particleAfterimageRuntimeActive === 'true',
           particleMotionVectors: true,
+          particleMotionVectorFormat: 'rg16float',
           depthOfField: state.quality.depthOfField,
           focusDistance: state.quality.focusDistance,
           focusRange: state.quality.focusRange,
@@ -245,6 +254,11 @@ async function initialize() {
           bokehSamples: state.quality.bokehSamples,
           bokehGamma: state.quality.bokehGamma,
           particleFocusDepth: PARTICLE_FOCUS_TARGET,
+          particleFocusProxy: FOCUS_HEMISPHERE_TARGET,
+          particleFocusProxyShape: 'virtualHemisphere',
+          particleFocusProxyRadius: FOCUS_HEMISPHERE_RADIUS,
+          particleFocusProxyRenderMode: 'isolatedRenderTarget',
+          particleFocusProxyResolutionScale: FOCUS_HEMISPHERE_RENDER_SCALE,
           particleBlend: engine.blendingMode,
           predictiveLoad: state.quality.predictiveLoad,
           postProcessingActive: runtimePostProcessing,
@@ -317,6 +331,22 @@ function setupPostProcessing() {
   };
   scenePass.setMRT(sceneMRT);
   const sceneColor = scenePass.getTextureNode();
+  focusHemisphereRenderTarget = new THREE.RenderTarget(1, 1, {
+    format: THREE.RGFormat,
+    type: THREE.HalfFloatType,
+    depthBuffer: false,
+    stencilBuffer: false,
+    samples: 0,
+  });
+  focusHemisphereRenderTarget.texture.name = FOCUS_HEMISPHERE_TARGET;
+  focusHemisphereRenderTarget.texture.colorSpace = THREE.NoColorSpace;
+  focusHemisphereRenderTarget.texture.minFilter = THREE.NearestFilter;
+  focusHemisphereRenderTarget.texture.magFilter = THREE.NearestFilter;
+  focusHemisphereRenderTarget.texture.generateMipmaps = false;
+  const focusHemisphereTexture = texture(focusHemisphereRenderTarget.texture);
+  const sceneVelocityTexture = scenePass.getTextureNode('velocity');
+  sceneVelocityTexture.value.format = THREE.RGFormat;
+  sceneVelocityTexture.value.type = THREE.HalfFloatType;
   const particleFocusTexture = scenePass.getTextureNode(PARTICLE_FOCUS_TARGET);
   const particleAfterimageTexture = scenePass.getTextureNode(PARTICLE_AFTERIMAGE_TARGET);
   saturationAmount = uniform(state.quality.saturation);
@@ -332,16 +362,16 @@ function setupPostProcessing() {
   const particleAfterimageResidual = accumulatedParticleAfterimage.sub(particleAfterimageTexture).max(0).mul(particleAfterimageAmount);
   const sceneWithParticleAfterimage = vec4(sceneColor.rgb.add(particleAfterimageResidual.rgb), sceneColor.a);
   const sceneWithParticleAfterimageTexture = convertToTexture(sceneWithParticleAfterimage);
-  const velocityTexture = scenePass.getTextureNode('velocity').mul(motionBlurAmount);
+  const velocityTexture = sceneVelocityTexture.mul(motionBlurAmount);
   const motionColor = motionBlur(sceneWithParticleAfterimageTexture, velocityTexture, int(8));
   bloomNode = bloom(motionColor);
   const composite = motionColor.add(bloomNode);
   renderPipeline = new THREE.RenderPipeline(renderer);
   renderPipeline.outputNode = vec4(saturation(composite.rgb, saturationAmount), composite.a);
-  // Resolve the particle/scene focal plane before bloom expands bright pixels
-  // beyond the geometry depth footprint. This keeps sky fireworks independent
-  // from the finite water mesh while preserving their real particle depth.
-  const bokehColor = bokehDepthOfField(motionColor, scenePass.getViewZNode(), particleFocusTexture, focusDistanceAmount, focusRangeAmount, bokehScaleAmount, bokehSamplesAmount, bokehGammaAmount);
+  // Resolve particle focus against a colorless virtual hemisphere before bloom.
+  // It covers the sky above the water footprint without entering scene depth,
+  // reflections, collisions, shadows, or the visible color attachment.
+  const bokehColor = bokehDepthOfField(motionColor, scenePass.getViewZNode(), focusHemisphereTexture, particleFocusTexture, focusDistanceAmount, focusRangeAmount, bokehScaleAmount, bokehSamplesAmount, bokehGammaAmount);
   const bokehTexture = convertToTexture(bokehColor);
   bokehBloomNode = bloom(bokehTexture);
   const bokehComposite = bokehTexture.add(bokehBloomNode);
@@ -391,8 +421,17 @@ function syncPostProcessing() {
   canvas.dataset.particleFocusDepth = PARTICLE_FOCUS_TARGET;
   canvas.dataset.particleBokehDepth = 'cameraSpace';
   canvas.dataset.particleBokehWaterIndependent = 'true';
-  canvas.dataset.particleBokehCoverage = 'screenSpaceNeighborhood';
+  canvas.dataset.particleBokehCoverage = 'screenSpaceNeighborhood+worldHemisphere';
   canvas.dataset.particleBokehGeometryExpansion = 'guardedSeed';
+  canvas.dataset.particleFocusProxy = 'virtualHemisphere';
+  canvas.dataset.particleFocusProxyTarget = FOCUS_HEMISPHERE_TARGET;
+  canvas.dataset.particleFocusHemisphereRadius = String(FOCUS_HEMISPHERE_RADIUS);
+  canvas.dataset.particleFocusHemisphereDiameter = String(FOCUS_HEMISPHERE_RADIUS * 2);
+  canvas.dataset.particleFocusHemisphereSurfaceSize = String(FOCUS_HEMISPHERE_SURFACE_SIZE);
+  canvas.dataset.particleFocusProxyFormat = 'rg16float';
+  canvas.dataset.particleFocusProxyRenderMode = 'isolatedRenderTarget';
+  canvas.dataset.particleFocusProxyResolutionScale = String(FOCUS_HEMISPHERE_RENDER_SCALE);
+  canvas.dataset.particleMotionVectorFormat = 'rg16float';
   canvas.dataset.particleBokehRadiusPixels = String(state.quality.bokehScale * PARTICLE_BOKEH_RADIUS_PIXELS);
   canvas.dataset.focusEffectOrder = 'motion-dof-texture-bloom';
   usePostProcessing = state.quality.bloom
@@ -407,6 +446,44 @@ function getActiveRenderPipeline() {
   return state.quality.depthOfField && state.quality.bokehScale > 0.001 ? bokehRenderPipeline : renderPipeline;
 }
 
+function renderFocusHemisphere() {
+  if (!focusHemisphereRenderTarget || !world?.focusScene) return;
+  renderer.getDrawingBufferSize(focusHemisphereDrawingSize);
+  const width = Math.max(1, Math.floor(focusHemisphereDrawingSize.x * FOCUS_HEMISPHERE_RENDER_SCALE));
+  const height = Math.max(1, Math.floor(focusHemisphereDrawingSize.y * FOCUS_HEMISPHERE_RENDER_SCALE));
+  if (focusHemisphereRenderTarget.width !== width || focusHemisphereRenderTarget.height !== height) {
+    focusHemisphereRenderTarget.setSize(width, height);
+  }
+
+  const currentRenderTarget = renderer.getRenderTarget();
+  const currentMRT = renderer.getMRT();
+  const currentAutoClear = renderer.autoClear;
+  const currentScissorTest = renderer.getScissorTest();
+  const currentClearAlpha = renderer.getClearAlpha();
+  renderer.getViewport(savedFocusViewport);
+  renderer.getScissor(savedFocusScissor);
+  renderer.getClearColor(savedFocusClearColor);
+
+  try {
+    renderer.setRenderTarget(focusHemisphereRenderTarget);
+    renderer.setMRT(null);
+    renderer.setViewport(0, 0, width, height);
+    renderer.setScissorTest(false);
+    renderer.autoClear = true;
+    renderer.setClearColor(0x000000, 0);
+    renderer.clear();
+    renderer.render(world.focusScene, camera);
+  } finally {
+    renderer.setRenderTarget(currentRenderTarget);
+    renderer.setMRT(currentMRT);
+    renderer.setViewport(savedFocusViewport);
+    renderer.setScissor(savedFocusScissor);
+    renderer.setScissorTest(currentScissorTest);
+    renderer.autoClear = currentAutoClear;
+    renderer.setClearColor(savedFocusClearColor, currentClearAlpha);
+  }
+}
+
 async function warmupRenderPaths() {
   const startedAt = performance.now();
   const particleWarmup = engine.prepareRenderWarmup();
@@ -415,7 +492,10 @@ async function warmupRenderPaths() {
     if (typeof renderer.compileAsync === 'function') await renderer.compileAsync(scene, camera);
     renderer.render(scene, camera);
     if (renderPipeline) renderPipeline.render();
-    if (bokehRenderPipeline) bokehRenderPipeline.render();
+    if (bokehRenderPipeline) {
+      renderFocusHemisphere();
+      bokehRenderPipeline.render();
+    }
     const queue = renderer.backend?.device?.queue;
     if (typeof queue?.onSubmittedWorkDone === 'function') await queue.onSubmittedWorkDone();
   } catch (error) {
@@ -1023,7 +1103,9 @@ function animate(now) {
 
   try {
     if (usePostProcessing && runtimePostProcessing && !renderer.xr.isPresenting && !renderFailedOver) {
-      getActiveRenderPipeline().render();
+      const activeRenderPipeline = getActiveRenderPipeline();
+      if (activeRenderPipeline === bokehRenderPipeline) renderFocusHemisphere();
+      activeRenderPipeline.render();
       if (particleAfterimageHistoryResetFrames > 0) particleAfterimageHistoryResetFrames -= 1;
     } else renderer.render(scene, camera);
   } catch (error) {
