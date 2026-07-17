@@ -14,6 +14,8 @@ export const MIN_LAUNCH_CENTER_X = -40;
 export const MAX_LAUNCH_CENTER_X = 40;
 export const MIN_LAUNCH_POSITION_RANGE = 0.1;
 export const MAX_LAUNCH_POSITION_RANGE = 2.5;
+export const MIN_CAMERA_FOV = 20;
+export const MAX_CAMERA_FOV = 110;
 
 export const DEFAULT_STATE = Object.freeze({
   selectedPresetId: 'gold-chrysanthemum',
@@ -23,6 +25,9 @@ export const DEFAULT_STATE = Object.freeze({
     positionRange: 1,
   },
   tool: 'camera',
+  camera: {
+    fov: 48,
+  },
   physics: {
     gravity: 1,
     drag: BASE_AIR_DRAG,
@@ -103,6 +108,9 @@ export function sanitizeState(candidate = {}) {
       positionRange: finite(candidate.launch?.positionRange, DEFAULT_STATE.launch.positionRange, MIN_LAUNCH_POSITION_RANGE, MAX_LAUNCH_POSITION_RANGE),
     },
     tool: allowed(candidate.tool, ['camera', 'gust', 'vortex', 'repel'], DEFAULT_STATE.tool),
+    camera: {
+      fov: finite(candidate.camera?.fov, DEFAULT_STATE.camera.fov, MIN_CAMERA_FOV, MAX_CAMERA_FOV),
+    },
     physics: {
       gravity: finite(candidate.physics?.gravity, DEFAULT_STATE.physics.gravity, 0, 2),
       drag: finite(candidate.physics?.drag, DEFAULT_STATE.physics.drag, 0, MAX_AIR_DRAG),

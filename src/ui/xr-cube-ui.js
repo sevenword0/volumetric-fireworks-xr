@@ -2,9 +2,11 @@ import * as THREE from 'three/webgpu';
 import {
   BASE_AIR_DRAG,
   MAX_AIR_DRAG,
+  MAX_CAMERA_FOV,
   MAX_LAUNCH_CENTER_X,
   MAX_LAUNCH_POSITION_RANGE,
   MAX_POST_BURST_LIFETIME,
+  MIN_CAMERA_FOV,
   MIN_LAUNCH_CENTER_X,
   MIN_LAUNCH_POSITION_RANGE,
   MIN_POST_BURST_LIFETIME,
@@ -85,6 +87,7 @@ export class XRCubeUI extends EventTarget {
           { label: '바닥', value: () => this.state.world.floor.toUpperCase(), action: () => this.callbacks.nextFloor?.() },
           { label: '볼륨', value: () => this.state.volume.smoke > 0 ? 'ON' : 'OFF', action: () => this.callbacks.toggleVolume?.() },
           { label: '그림자', value: () => this.state.quality.shadows ? 'ON' : 'OFF', action: () => this.callbacks.toggleShadows?.() },
+          { label: 'PC 화각', value: () => `${Math.round(this.state.camera.fov)}°`, action: () => this.adjust('camera.fov', 5, MIN_CAMERA_FOV, MAX_CAMERA_FOV) },
         ],
       },
       {
