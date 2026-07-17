@@ -16,6 +16,10 @@ export const MIN_LAUNCH_CENTER_X = -40;
 export const MAX_LAUNCH_CENTER_X = 40;
 export const MIN_LAUNCH_POSITION_RANGE = 0.1;
 export const MAX_LAUNCH_POSITION_RANGE = 2.5;
+export const MIN_INITIAL_LAUNCH_POWER = 0.5;
+export const MAX_INITIAL_LAUNCH_POWER = 2;
+export const MIN_EFFECTIVE_LAUNCH_POWER = 0.25;
+export const MAX_EFFECTIVE_LAUNCH_POWER = 2.4;
 export const MIN_CAMERA_FOV = 20;
 export const MAX_CAMERA_FOV = 110;
 export const MIN_BOKEH_SAMPLES = 5;
@@ -27,6 +31,7 @@ export const DEFAULT_STATE = Object.freeze({
   launch: {
     centerX: 0,
     positionRange: 1,
+    initialPower: 1,
   },
   tool: 'camera',
   camera: {
@@ -101,6 +106,12 @@ function finite(value, fallback, min = -Infinity, max = Infinity) {
   return Math.min(max, Math.max(min, number));
 }
 
+export function resolveInitialLaunchPower(localPower = 1, globalPower = 1) {
+  const local = finite(localPower, 1, MIN_EFFECTIVE_LAUNCH_POWER, MAX_EFFECTIVE_LAUNCH_POWER);
+  const global = finite(globalPower, 1, MIN_INITIAL_LAUNCH_POWER, MAX_INITIAL_LAUNCH_POWER);
+  return finite(local * global, 1, MIN_EFFECTIVE_LAUNCH_POWER, MAX_EFFECTIVE_LAUNCH_POWER);
+}
+
 function integer(value, fallback, min, max) {
   return Math.round(finite(value, fallback, min, max));
 }
@@ -117,6 +128,7 @@ export function sanitizeState(candidate = {}) {
     launch: {
       centerX: finite(candidate.launch?.centerX, DEFAULT_STATE.launch.centerX, MIN_LAUNCH_CENTER_X, MAX_LAUNCH_CENTER_X),
       positionRange: finite(candidate.launch?.positionRange, DEFAULT_STATE.launch.positionRange, MIN_LAUNCH_POSITION_RANGE, MAX_LAUNCH_POSITION_RANGE),
+      initialPower: finite(candidate.launch?.initialPower, DEFAULT_STATE.launch.initialPower, MIN_INITIAL_LAUNCH_POWER, MAX_INITIAL_LAUNCH_POWER),
     },
     tool: allowed(candidate.tool, ['camera', 'gust', 'vortex', 'repel'], DEFAULT_STATE.tool),
     camera: {

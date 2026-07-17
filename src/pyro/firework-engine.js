@@ -350,7 +350,7 @@ export class FireworkEngine extends EventTarget {
     const y = options.y ?? 0.25;
     const scale = options.scale ?? 1;
     const yaw = options.yaw ?? 0;
-    const launchPower = clamp(finite(options.launchPower, 1), 0.5, 1.8);
+    const launchPower = clamp(finite(options.launchPower, 1), 0.25, 2.4);
     const explosionPower = clamp(finite(options.explosionPower, 1), 0.5, 1.8);
     const burstScale = clamp(scale * explosionPower, 0.35, 2.2);
     const colorEffects = {

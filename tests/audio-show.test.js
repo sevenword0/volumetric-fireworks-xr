@@ -4,6 +4,7 @@ import {
   AudioShowController,
   analyzeChannelData,
   fftMagnitudes,
+  findCueIndexAtTime,
   generateShowCues,
   getPresetForCue,
   summarizeCueLayouts,
@@ -16,6 +17,62 @@ test('music playback volume is clamped and can be changed before audio is loaded
   assert.equal(controller.setVolume(4), 1);
   assert.equal(controller.setVolume(-2), 0);
   assert.equal(controller.setVolume(0.36), 0.36);
+});
+
+test('cue lookup resumes from the first cue at or just before a seek target', () => {
+  const cues = [{ time: 1 }, { time: 4 }, { time: 9 }, { time: 12 }];
+  assert.equal(findCueIndexAtTime(cues, 0), 0);
+  assert.equal(findCueIndexAtTime(cues, 4.02, 0.04), 1);
+  assert.equal(findCueIndexAtTime(cues, 4.2, 0.04), 2);
+  assert.equal(findCueIndexAtTime(cues, 99), cues.length);
+});
+
+test('seeking and restart replace the audio source without a stale ended event', async () => {
+  const sources = [];
+  class FakeSource {
+    connect() {}
+    disconnect() { this.disconnected = true; }
+    start(_when, offset) { this.startedAtOffset = offset; }
+    stop() {
+      this.stopped = true;
+      this.onended?.();
+    }
+  }
+  const context = {
+    currentTime: 10,
+    destination: {},
+    resume: async () => {},
+    createBufferSource: () => {
+      const source = new FakeSource();
+      sources.push(source);
+      return source;
+    },
+  };
+  const controller = new AudioShowController();
+  controller.context = context;
+  controller.buffer = { duration: 60 };
+  let ended = 0;
+  controller.addEventListener('ended', () => { ended += 1; });
+
+  assert.equal(await controller.play(), true);
+  assert.equal(sources[0].startedAtOffset, 0);
+  context.currentTime = 15;
+  assert.equal(await controller.seek(32), 32);
+  assert.equal(sources[0].stopped, true);
+  assert.equal(sources[1].startedAtOffset, 32);
+  assert.equal(controller.playing, true);
+  assert.equal(ended, 0);
+
+  context.currentTime = 16;
+  controller.pause();
+  assert.equal(controller.playing, false);
+  assert.equal(await controller.seek(44), 44);
+  assert.equal(sources.length, 2);
+
+  assert.equal(await controller.playFromStart(), true);
+  assert.equal(sources[2].startedAtOffset, 0);
+  assert.equal(controller.currentTime, 0);
+  assert.equal(ended, 0);
 });
 
 function makeClickTrack({ bpm = 120, duration = 12, sampleRate = 8000 } = {}) {

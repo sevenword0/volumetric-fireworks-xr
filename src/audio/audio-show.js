@@ -288,6 +288,19 @@ export function generateShowCues(analysis, settings = {}, sourceName = 'music') 
   return applyShowChoreography(orderedCues, settings, choreographyRandom);
 }
 
+export function findCueIndexAtTime(cues = [], time = 0, tolerance = 0.04) {
+  const threshold = Math.max(0, (Number(time) || 0) - Math.max(0, Number(tolerance) || 0));
+  let low = 0;
+  let high = cues.length;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    const cueTime = Number(cues[middle]?.time) || 0;
+    if (cueTime < threshold) low = middle + 1;
+    else high = middle;
+  }
+  return low;
+}
+
 export class AudioShowController extends EventTarget {
   constructor(options = {}) {
     super();
@@ -306,6 +319,9 @@ export class AudioShowController extends EventTarget {
 
   async load(file) {
     this.stop();
+    this.buffer = null;
+    this.analysis = null;
+    this.cues = [];
     this.context ??= new AudioContext({ latencyHint: 'interactive' });
     if (!this.master) {
       this.master = this.context.createGain();
@@ -334,38 +350,70 @@ export class AudioShowController extends EventTarget {
       this.pause();
       return false;
     }
+    return this.startPlayback();
+  }
+
+  async startPlayback() {
     await this.context.resume();
-    this.source = this.context.createBufferSource();
-    this.source.buffer = this.buffer;
-    this.source.connect(this.master ?? this.context.destination);
+    if (this.offset >= this.buffer.duration) this.offset = 0;
+    const source = this.context.createBufferSource();
+    source.buffer = this.buffer;
+    source.connect(this.master ?? this.context.destination);
+    this.source = source;
     this.startedAt = this.context.currentTime - this.offset;
-    this.source.start(0, this.offset);
-    this.source.onended = () => {
-      if (!this.playing) return;
+    this.playing = true;
+    source.onended = () => {
+      if (!this.playing || this.source !== source) return;
+      this.source = null;
       this.playing = false;
       this.offset = 0;
       this.dispatchEvent(new CustomEvent('ended'));
     };
-    this.playing = true;
+    source.start(0, this.offset);
     this.dispatchEvent(new CustomEvent('play'));
     return true;
+  }
+
+  detachSource() {
+    const source = this.source;
+    this.source = null;
+    if (!source) return;
+    source.onended = null;
+    try { source.stop(); } catch { /* already stopped */ }
+    try { source.disconnect(); } catch { /* optional in lightweight test doubles */ }
   }
 
   pause() {
     if (!this.playing || !this.context) return;
     this.offset = Math.min(this.buffer.duration, this.context.currentTime - this.startedAt);
     this.playing = false;
-    this.source?.stop();
-    this.source = null;
+    this.detachSource();
     this.dispatchEvent(new CustomEvent('pause'));
   }
 
+  async seek(time) {
+    if (!this.buffer || !this.context) return 0;
+    const target = clamp(Number(time) || 0, 0, this.buffer.duration);
+    const wasPlaying = this.playing;
+    this.playing = false;
+    this.detachSource();
+    this.offset = target;
+    if (wasPlaying && target < this.buffer.duration) await this.startPlayback();
+    this.dispatchEvent(new CustomEvent('seek', { detail: { time: this.offset, playing: this.playing } }));
+    return this.offset;
+  }
+
+  async playFromStart() {
+    if (!this.buffer || !this.context) return false;
+    this.playing = false;
+    this.detachSource();
+    this.offset = 0;
+    return this.startPlayback();
+  }
+
   stop() {
-    if (this.source) {
-      this.playing = false;
-      try { this.source.stop(); } catch { /* already stopped */ }
-      this.source = null;
-    }
+    this.playing = false;
+    this.detachSource();
     this.offset = 0;
     this.dispatchEvent(new CustomEvent('stop'));
   }

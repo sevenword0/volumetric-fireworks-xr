@@ -21,6 +21,7 @@ const FORMATTERS = {
   'camera.fov': (value) => `${Math.round(value)}°`,
   'launch.centerX': (value) => `${Math.round(value)}m`,
   'launch.positionRange': (value) => `${Math.round(value * 100)}%`,
+  'launch.initialPower': (value) => `${Math.round(value * 100)}%`,
   'physics.gravity': (value) => `${value.toFixed(2)} g`,
   'physics.drag': (value) => `${(value / BASE_AIR_DRAG).toFixed(2)}×`,
   'physics.particleLifetime': (value) => `${value.toFixed(2)}×`,
@@ -61,6 +62,7 @@ const FORMATTERS = {
 
 const RANGE_BINDINGS = [
   ['camera-fov', 'camera.fov'],
+  ['initial-launch-power', 'launch.initialPower', 0.01],
   ['launch-center-x', 'launch.centerX'],
   ['launch-position-range', 'launch.positionRange', 0.01],
   ['gravity', 'physics.gravity'],
@@ -159,6 +161,7 @@ export class AppUI extends EventTarget {
     this.cues = [];
     this.loadWindows = [];
     this.timelinePlayhead = 0;
+    this.timelineSeeking = false;
     this.xrAvailable = false;
     this.applyingShowPreset = false;
     this.showPreviewIndex = 0;
@@ -195,10 +198,10 @@ export class AppUI extends EventTarget {
       'design-pattern', 'design-star', 'design-pistil', 'design-palette', 'design-count', 'design-size', 'design-trail', 'design-life',
       'design-count-out', 'design-size-out', 'design-trail-out', 'design-life-out', 'design-strobe', 'design-split', 'design-color-shift',
       'save-design', 'launch-design', 'shell-preview', 'custom-code', 'custom-title',
-      'audio-drop', 'audio-input', 'audio-info', 'audio-name', 'audio-meta', 'audio-remove', 'audio-timeline', 'music-bpm', 'music-cues', 'music-length',
+      'audio-drop', 'audio-input', 'audio-info', 'audio-name', 'audio-meta', 'audio-remove', 'audio-timeline', 'show-timeline-seek', 'show-timeline-time', 'music-bpm', 'music-cues', 'music-length',
       'music-loads',
       'show-choreography', 'show-direction', 'show-choreography-summary', 'preview-show',
-      'generate-show', 'play-show', 'environment-select', 'environment-input', 'camera-view', 'floor-mode', 'quality-select', 'particle-blend',
+      'generate-show', 'restart-show', 'play-show', 'environment-select', 'environment-input', 'camera-view', 'floor-mode', 'quality-select', 'particle-blend',
       'bloom-toggle', 'dof-toggle', 'shadow-toggle', 'adaptive-toggle', 'predictive-load-toggle',
       'optimize-particles', 'optimize-resolution', 'optimize-volume', 'optimize-lighting', 'optimize-post',
       'sound-toggle', 'sound-status',
@@ -479,15 +482,21 @@ export class AppUI extends EventTarget {
       this.setLoadPlan();
       this.elements.audioname.textContent = file.name;
       this.elements.audiometa.textContent = '파형·주파수·온셋 분석 중…';
+      this.analysis = null;
+      this.cues = [];
       this.elements.generateshow.disabled = true;
       this.elements.playshow.disabled = true;
+      this.elements.restartshow.disabled = true;
+      this.elements.showtimelineseek.disabled = true;
       try {
         this.analysis = await this.audio.load(file);
         this.elements.audiometa.textContent = `${formatDuration(this.analysis.duration)} · ${Math.round(file.size / 1024 / 1024 * 10) / 10} MB · 로컬 분석 완료`;
         this.elements.musicbpm.textContent = this.analysis.bpm ? Math.round(this.analysis.bpm) : 'FREE';
         this.elements.musiclength.textContent = formatDuration(this.analysis.duration);
         this.elements.generateshow.disabled = false;
-        this.drawTimeline();
+        this.elements.showtimelineseek.max = String(this.analysis.duration);
+        this.elements.showtimelineseek.disabled = false;
+        this.updatePlayhead(0, true, true);
         this.toast(`음악 분석 완료 · ${this.analysis.onsets.length}개 온셋 감지`);
       } catch (error) {
         console.error(error);
@@ -517,24 +526,80 @@ export class AppUI extends EventTarget {
       this.elements.audioinfo.classList.add('hidden');
       this.elements.generateshow.disabled = true;
       this.elements.playshow.disabled = true;
+      this.elements.restartshow.disabled = true;
+      this.elements.showtimelineseek.disabled = true;
+      this.elements.showtimelineseek.max = '0';
       this.elements.musicbpm.textContent = '—';
       this.elements.musiccues.textContent = '0';
       this.elements.musiclength.textContent = '—';
+      this.updatePlayhead(0, true, true);
       this.setLoadPlan();
       this.drawTimeline();
       this.dispatchEvent(new CustomEvent('showgenerated', { detail: { cues: [] } }));
       this.dispatchEvent(new CustomEvent('showstop'));
     });
     this.elements.generateshow.addEventListener('click', () => this.generateShow());
-    this.elements.playshow.addEventListener('click', async () => {
-      const playing = await this.audio.play();
-      this.elements.playshow.textContent = playing ? 'Ⅱ 일시정지' : '▶ 쇼 재생';
-      this.dispatchEvent(new CustomEvent(playing ? 'showplay' : 'showpause', { detail: { cues: this.cues } }));
+    this.elements.playshow.addEventListener('click', () => { void this.toggleShowPlayback(); });
+    this.elements.restartshow.addEventListener('click', () => { void this.playShowFromStart(); });
+    this.elements.showtimelineseek.addEventListener('input', () => {
+      this.timelineSeeking = true;
+      this.updatePlayhead(Number(this.elements.showtimelineseek.value), true, true);
+    });
+    this.elements.showtimelineseek.addEventListener('change', () => {
+      const target = Number(this.elements.showtimelineseek.value);
+      this.timelineSeeking = false;
+      void this.seekShow(target);
+    });
+    this.elements.showtimelineseek.addEventListener('pointercancel', () => {
+      this.timelineSeeking = false;
+      this.updatePlayhead(this.audio.currentTime, true, true);
+    });
+    this.elements.audiotimeline.addEventListener('click', (event) => {
+      if (!this.analysis?.duration) return;
+      const bounds = this.elements.audiotimeline.getBoundingClientRect();
+      const ratio = Math.max(0, Math.min(1, (event.clientX - bounds.left) / Math.max(1, bounds.width)));
+      void this.seekShow(this.analysis.duration * ratio);
     });
     this.audio.addEventListener('ended', () => {
       this.elements.playshow.textContent = '▶ 쇼 재생';
       this.dispatchEvent(new CustomEvent('showstop'));
     });
+  }
+
+  async toggleShowPlayback() {
+    if (!this.audio.buffer || !this.cues.length) {
+      this.toast('먼저 음악 쇼를 생성해 주세요', 'error');
+      return false;
+    }
+    const playing = await this.audio.play();
+    this.elements.playshow.textContent = playing ? 'Ⅱ 일시정지' : '▶ 쇼 재생';
+    this.dispatchEvent(new CustomEvent(playing ? 'showplay' : 'showpause', { detail: { cues: this.cues, time: this.audio.currentTime } }));
+    return playing;
+  }
+
+  async playShowFromStart() {
+    if (!this.audio.buffer || !this.cues.length) {
+      this.toast('먼저 음악 쇼를 생성해 주세요', 'error');
+      return false;
+    }
+    const playing = await this.audio.playFromStart();
+    this.elements.playshow.textContent = playing ? 'Ⅱ 일시정지' : '▶ 쇼 재생';
+    this.updatePlayhead(0, true, true);
+    this.dispatchEvent(new CustomEvent('showrestart', { detail: { cues: this.cues, time: 0 } }));
+    return playing;
+  }
+
+  async seekShow(time) {
+    if (!this.audio.buffer || !this.analysis) return 0;
+    const target = await this.audio.seek(time);
+    this.elements.playshow.textContent = this.audio.playing ? 'Ⅱ 일시정지' : '▶ 쇼 재생';
+    this.updatePlayhead(target, true, true);
+    this.dispatchEvent(new CustomEvent('showseek', { detail: { cues: this.cues, time: target, playing: this.audio.playing } }));
+    return target;
+  }
+
+  seekShowBy(delta) {
+    return this.seekShow(this.audio.currentTime + Number(delta || 0));
   }
 
   generateShow() {
@@ -549,6 +614,7 @@ export class AppUI extends EventTarget {
     summary.dataset.generatedColorCues = String(this.cues.filter((cue) => Math.abs(cue.choreography?.colorHue ?? 0) > 0.001).length);
     summary.title = `생성 결과: 전체 ${this.cues.length}큐 · 교차 ${crossCues}큐`;
     this.elements.playshow.disabled = this.cues.length === 0;
+    this.elements.restartshow.disabled = this.cues.length === 0;
     this.drawTimeline();
     this.toast(`${this.cues.length}개 큐로 자동 불꽃 쇼를 만들었습니다`);
     this.dispatchEvent(new CustomEvent('showgenerated', { detail: { cues: this.cues } }));
@@ -964,10 +1030,16 @@ export class AppUI extends EventTarget {
     this.elements.soundstatus.classList.toggle('active', active);
   }
 
-  updatePlayhead(time) {
-    if (Math.abs(time - this.timelinePlayhead) < 0.08) return;
-    this.timelinePlayhead = time;
-    this.drawTimeline(time);
+  updatePlayhead(time, force = false, allowDuringSeek = false) {
+    if (this.timelineSeeking && !allowDuringSeek) return;
+    const duration = this.analysis?.duration ?? 0;
+    const next = Math.max(0, Math.min(duration, Number(time) || 0));
+    if (!force && Math.abs(next - this.timelinePlayhead) < 0.08) return;
+    this.timelinePlayhead = next;
+    this.elements.showtimelineseek.value = String(next);
+    this.elements.showtimelinetime.textContent = `${formatDuration(next)} / ${formatDuration(duration)}`;
+    fillRange(this.elements.showtimelineseek);
+    this.drawTimeline(next);
   }
 
   toast(message, type = 'info', duration = 2600) {
