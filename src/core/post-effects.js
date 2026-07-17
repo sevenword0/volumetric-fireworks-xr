@@ -1,15 +1,60 @@
-import { Fn, Loop, convertToTexture, float, int, mix, screenSize, smoothstep, uv, vec2, vec4 } from 'three/tsl';
+import { Fn, If, Loop, convertToTexture, float, int, mix, screenSize, select, smoothstep, uv, vec2, vec3, vec4 } from 'three/tsl';
 import {
   MAX_BOKEH_GAMMA,
   MIN_BOKEH_GAMMA,
   PARTICLE_BOKEH_EDGE_SOFTNESS_PIXELS,
   PARTICLE_BOKEH_RADIUS_PIXELS,
 } from './bokeh-response.js';
+import { BOKEH_RING_INNER_RADIUS, BOKEH_SHAPE_INDEX } from './bokeh-shapes.js';
 import { PARTICLE_FOCUS_FULL_COVERAGE, PARTICLE_FOCUS_MIN_COVERAGE } from './focus-depth.js';
 
 const GOLDEN_ANGLE = 2.399963229728653;
 
-const particleBokehFocusCoverage = Fn(([particleFocusTextureNode, focusDistanceNode, focusRangeNode, bokehScaleNode, bokehSamplesNode]) => {
+const bokehSampleOffset = Fn(([sampleIndexNode, sampleCountNode, bokehShapeNode]) => {
+  const angle = sampleIndexNode.mul(GOLDEN_ANGLE);
+  const discRadius = sampleIndexNode.div(sampleCountNode.sub(1).max(1)).sqrt();
+  const direction = vec2(angle.cos(), angle.sin());
+  const offset = direction.mul(discRadius).toVar();
+
+  const assignRegularPolygon = (sides) => {
+    const halfStep = float(Math.PI / sides);
+    const step = halfStep.mul(2);
+    const sector = angle.sub(Math.PI / 2).add(halfStep).mod(step).sub(halfStep);
+    const boundary = halfStep.cos().div(halfStep.sub(sector.abs()).cos());
+    offset.assign(direction.mul(discRadius).mul(boundary));
+  };
+
+  If(bokehShapeNode.equal(int(BOKEH_SHAPE_INDEX.pentagon)), () => assignRegularPolygon(5));
+  If(bokehShapeNode.equal(int(BOKEH_SHAPE_INDEX.hexagon)), () => assignRegularPolygon(6));
+  If(bokehShapeNode.equal(int(BOKEH_SHAPE_INDEX.octagon)), () => assignRegularPolygon(8));
+
+  If(bokehShapeNode.equal(int(BOKEH_SHAPE_INDEX.ring)), () => {
+    const progress = sampleIndexNode.sub(1).div(sampleCountNode.sub(2).max(1)).clamp(0, 1);
+    const ringRadius = mix(BOKEH_RING_INNER_RADIUS ** 2, 1, progress).sqrt();
+    offset.assign(direction.mul(ringRadius));
+  });
+
+  If(bokehShapeNode.equal(int(BOKEH_SHAPE_INDEX.heart)), () => {
+    const sinAngle = angle.sin();
+    const heartX = sinAngle.mul(sinAngle).mul(sinAngle).mul(16 / 18);
+    const heartY = angle.cos().mul(13)
+      .sub(angle.mul(2).cos().mul(5))
+      .sub(angle.mul(3).cos().mul(2))
+      .sub(angle.mul(4).cos())
+      .add(2)
+      .div(18);
+    offset.assign(vec2(heartX, heartY).mul(discRadius));
+  });
+
+  If(bokehShapeNode.equal(int(BOKEH_SHAPE_INDEX.star)), () => {
+    const starRadius = angle.sub(Math.PI / 2).mul(5).cos().mul(0.35).add(0.65);
+    offset.assign(direction.mul(discRadius).mul(starRadius));
+  });
+
+  return offset;
+});
+
+const particleBokehFocusCoverage = Fn(([particleFocusTextureNode, focusDistanceNode, focusRangeNode, bokehScaleNode, bokehSamplesNode, bokehShapeNode]) => {
   const baseUV = uv();
   const packedFocus = particleFocusTextureNode.sample(baseUV);
   const baseCoverage = packedFocus.a;
@@ -23,10 +68,9 @@ const particleBokehFocusCoverage = Fn(([particleFocusTextureNode, focusDistanceN
 
   Loop({ start: int(1), end: int(bokehSamplesNode), type: 'int', condition: '<' }, ({ i }) => {
     const sampleIndex = float(i);
-    const discRadius = sampleIndex.div(sampleCount.sub(1).max(1)).sqrt();
-    const angle = sampleIndex.mul(GOLDEN_ANGLE);
-    const offsetPixels = discRadius.mul(searchRadius);
-    const offset = vec2(angle.cos(), angle.sin()).mul(offsetPixels);
+    const apertureOffset = bokehSampleOffset(sampleIndex, sampleCount, bokehShapeNode);
+    const offset = apertureOffset.mul(searchRadius);
+    const offsetPixels = apertureOffset.length().mul(searchRadius);
     const sampleFocus = particleFocusTextureNode.sample(baseUV.add(texel.mul(offset)));
     const sampleCoverage = sampleFocus.a;
     const sampleDistance = sampleFocus.r.div(sampleCoverage.max(0.001));
@@ -45,7 +89,7 @@ const particleBokehFocusCoverage = Fn(([particleFocusTextureNode, focusDistanceN
   return vec4(distance.mul(coverage), 0, 0, coverage);
 });
 
-const depthBokeh = Fn(([textureNode, viewZNode, focusHemisphereTextureNode, particleFocusTextureNode, focusDistanceNode, focusRangeNode, bokehScaleNode, bokehSamplesNode, bokehGammaNode]) => {
+const depthBokeh = Fn(([textureNode, viewZNode, focusHemisphereTextureNode, particleFocusTextureNode, focusDistanceNode, focusRangeNode, bokehScaleNode, bokehSamplesNode, bokehGammaNode, bokehShapeNode]) => {
   const baseUV = uv();
   const source = textureNode.sample(baseUV).toVar();
   const packedFocusHemisphere = focusHemisphereTextureNode.sample(baseUV);
@@ -68,18 +112,18 @@ const depthBokeh = Fn(([textureNode, viewZNode, focusHemisphereTextureNode, part
   const texel = vec2(1).div(screenSize);
   const radius = circleOfConfusion.mul(bokehScaleNode).mul(PARTICLE_BOKEH_RADIUS_PIXELS);
   const sampleCount = float(bokehSamplesNode).max(1);
-  const accumulated = source.rgb.toVar();
+  const isRing = bokehShapeNode.equal(int(BOKEH_SHAPE_INDEX.ring));
+  const accumulated = select(isRing, vec3(0), source.rgb).toVar();
 
   Loop({ start: int(1), end: int(bokehSamplesNode), type: 'int', condition: '<' }, ({ i }) => {
     const sampleIndex = float(i);
-    const discRadius = sampleIndex.div(sampleCount.sub(1).max(1)).sqrt();
-    const angle = sampleIndex.mul(GOLDEN_ANGLE);
-    const offset = vec2(angle.cos(), angle.sin()).mul(discRadius);
+    const offset = bokehSampleOffset(sampleIndex, sampleCount, bokehShapeNode);
     const sampleUV = baseUV.add(texel.mul(radius).mul(offset));
     accumulated.addAssign(textureNode.sample(sampleUV).rgb);
   });
 
-  const blurredColor = accumulated.div(sampleCount).max(0);
+  const sampleDivisor = select(isRing, sampleCount.sub(1).max(1), sampleCount);
+  const blurredColor = accumulated.div(sampleDivisor).max(0);
   const bokehHighlight = blurredColor.sub(source.rgb.max(0)).max(0);
   const safeGamma = bokehGammaNode.clamp(MIN_BOKEH_GAMMA, MAX_BOKEH_GAMMA);
   const gammaAdjustedHighlight = bokehHighlight.pow(float(1).div(safeGamma));
@@ -87,13 +131,14 @@ const depthBokeh = Fn(([textureNode, viewZNode, focusHemisphereTextureNode, part
   return vec4(mix(source.rgb, gammaAdjustedBokeh, blend), source.a);
 });
 
-export function bokehDepthOfField(inputNode, viewZNode, focusHemisphereTextureNode, particleFocusTextureNode, focusDistanceNode, focusRangeNode, bokehScaleNode, bokehSamplesNode, bokehGammaNode) {
+export function bokehDepthOfField(inputNode, viewZNode, focusHemisphereTextureNode, particleFocusTextureNode, focusDistanceNode, focusRangeNode, bokehScaleNode, bokehSamplesNode, bokehGammaNode, bokehShapeNode) {
   const expandedParticleFocusTexture = convertToTexture(particleBokehFocusCoverage(
     particleFocusTextureNode,
     focusDistanceNode,
     focusRangeNode,
     bokehScaleNode,
     bokehSamplesNode,
+    bokehShapeNode,
   ));
-  return depthBokeh(convertToTexture(inputNode), viewZNode, focusHemisphereTextureNode, expandedParticleFocusTexture, focusDistanceNode, focusRangeNode, bokehScaleNode, bokehSamplesNode, bokehGammaNode);
+  return depthBokeh(convertToTexture(inputNode), viewZNode, focusHemisphereTextureNode, expandedParticleFocusTexture, focusDistanceNode, focusRangeNode, bokehScaleNode, bokehSamplesNode, bokehGammaNode, bokehShapeNode);
 }

@@ -286,7 +286,12 @@ export class WorldScene extends EventTarget {
     material.name = 'Focus-only virtual hemisphere';
     material.outputNode = vec4(positionView.z.negate(), 1, 0, 1);
     material.transparent = true;
-    material.blending = THREE.AdditiveBlending;
+    // RG16F has no alpha channel, so use explicit ONE + ONE accumulation.
+    // AdditiveBlending defaults to SrcAlpha and fails WebGPU target validation.
+    material.blending = THREE.CustomBlending;
+    material.blendEquation = THREE.AddEquation;
+    material.blendSrc = THREE.OneFactor;
+    material.blendDst = THREE.OneFactor;
     material.depthTest = false;
     material.depthWrite = false;
     material.side = THREE.DoubleSide;
@@ -480,6 +485,7 @@ export class WorldScene extends EventTarget {
       surfaceSize: FOCUS_HEMISPHERE_SURFACE_SIZE,
       segments: [FOCUS_HEMISPHERE_WIDTH_SEGMENTS, FOCUS_HEMISPHERE_HEIGHT_SEGMENTS],
       format: 'rg16float',
+      blending: 'one+one',
       colorVisible: false,
       depthWrite: false,
     };
