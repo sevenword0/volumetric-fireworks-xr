@@ -226,6 +226,28 @@ test('same-frame particle spikes receive an immediate render cap before the next
   engine.dispose();
 });
 
+test('disabled particle optimization preserves normal LOD until the emergency hard cap', () => {
+  const engine = createEngine(1000);
+  engine.setLoadBudget({
+    softLimit: 800,
+    maxSpawnPerFrame: 1000,
+    renderLimit: 800,
+    particleScale: 1,
+    particleOptimization: false,
+  });
+  for (let index = 0; index < 500; index += 1) engine.acquire();
+  engine.updateAttributes();
+  assert.equal(engine.renderedCount, 500);
+  assert.equal(engine.renderLimit, 800);
+
+  for (let index = 0; index < 150; index += 1) engine.acquire({ essential: true });
+  engine.updateAttributes();
+  assert.equal(engine.activeCount, 650);
+  assert.ok(engine.renderedCount < 650);
+  assert.equal(engine.renderLimit, 176);
+  engine.dispose();
+});
+
 test('particle capacity is prewarmed so a full show does not allocate during bursts or trails', () => {
   const engine = createEngine(512);
   assert.equal(engine.performanceDiagnostics.allocatedParticles, 512);

@@ -57,6 +57,14 @@ const LOAD_PROFILES = Object.freeze([
   }),
 ]);
 
+export const DEFAULT_OPTIMIZATION_TARGETS = Object.freeze({
+  particles: true,
+  resolution: true,
+  volume: true,
+  lighting: true,
+  postProcessing: true,
+});
+
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
@@ -166,4 +174,37 @@ export class ParticleLoadGuard {
 
 export function particleLoadProfile(level = 0) {
   return LOAD_PROFILES[clamp(Math.round(Number(level) || 0), 0, LOAD_PROFILES.length - 1)];
+}
+
+export function applyLoadOptimizationTargets(loadState = {}, targets = DEFAULT_OPTIMIZATION_TARGETS, capacity = loadState.capacity) {
+  const safeCapacity = Math.max(1, Math.round(Number(capacity) || 1));
+  const normalized = Object.fromEntries(Object.keys(DEFAULT_OPTIMIZATION_TARGETS).map((key) => [key, targets?.[key] !== false]));
+  const normal = LOAD_PROFILES[0];
+  const level = clamp(Math.round(Number(loadState.level) || 0), 0, LOAD_PROFILES.length - 1);
+  const particleSafetyOverride = !normalized.particles && particleLoadLevel(Number(loadState.loadRatio) || 0) >= 3;
+  const applyParticles = normalized.particles || particleSafetyOverride;
+  const normalSoftLimit = Math.max(1, Math.floor(safeCapacity * normal.softLimitRatio));
+  const normalSpawnLimit = Math.max(24, Math.round(safeCapacity * normal.spawnRatio));
+
+  return {
+    ...loadState,
+    capacity: safeCapacity,
+    optimizationTargets: normalized,
+    appliedTargetCount: Object.values(normalized).filter(Boolean).length,
+    particleOptimization: normalized.particles,
+    particleSafetyOverride,
+    softLimit: applyParticles ? loadState.softLimit : normalSoftLimit,
+    maxSpawnPerFrame: applyParticles ? loadState.maxSpawnPerFrame : normalSpawnLimit,
+    burstScale: applyParticles ? loadState.burstScale : normal.burstScale,
+    trailScale: applyParticles ? loadState.trailScale : normal.trailScale,
+    smokeStride: applyParticles ? loadState.smokeStride : normal.smokeStride,
+    cullPerFrame: applyParticles ? loadState.cullPerFrame : 0,
+    renderLimit: applyParticles ? loadState.renderLimit : normalSoftLimit,
+    particleScale: applyParticles ? loadState.particleScale : normal.particleScale,
+    resolutionScale: normalized.resolution ? loadState.resolutionScale : 1,
+    reflectionScale: normalized.resolution ? loadState.reflectionScale : 1,
+    volumeLevel: normalized.volume ? level : 0,
+    lightingLevel: normalized.lighting ? level : 0,
+    postProcessing: normalized.postProcessing ? loadState.postProcessing : true,
+  };
 }

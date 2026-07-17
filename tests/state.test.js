@@ -36,7 +36,7 @@ test('numeric state is clamped to safe simulation ranges', () => {
       colorVariation: -4,
     },
   });
-  assert.deepEqual(state.physics, { gravity: 2, drag: 0.85, particleLifetime: 5, windX: 8, windZ: -8, vortex: 0.42 });
+  assert.deepEqual(state.physics, { gravity: 2, drag: 4.25, particleLifetime: 5, windX: 8, windZ: -8, vortex: 0.42 });
   assert.deepEqual(sanitizeState({ physics: { drag: -4, particleLifetime: -4 } }).physics, {
     gravity: 1, drag: 0, particleLifetime: 0.25, windX: 1.6, windZ: 0.3, vortex: 0.42,
   });
@@ -115,7 +115,7 @@ test('a saved choreography preset restores its own missing control defaults', ()
 
 test('visual effects and impact sound settings persist after sanitization', () => {
   const state = sanitizeState({
-    quality: { fireworkBrightness: 1.8, bloom: false, bloomStrength: 1.4, bloomRadius: 0.3, bloomThreshold: 1.1, saturation: 1.6, motionBlur: 0.8, depthOfField: false, focusDistance: 94, focusRange: 18, bokehScale: 1.2, particleBlend: 'screen', predictiveLoad: false },
+    quality: { fireworkBrightness: 1.8, bloom: false, bloomStrength: 1.4, bloomRadius: 0.3, bloomThreshold: 1.1, saturation: 1.6, motionBlur: 0.8, depthOfField: false, focusDistance: 94, focusRange: 18, bokehScale: 1.2, particleBlend: 'screen', predictiveLoad: false, autoTargets: { particles: false, resolution: false, volume: false, lighting: false, postProcessing: false } },
     sound: { enabled: false, volume: 0.35 },
     show: { musicVolume: 0.42 },
   });
@@ -123,6 +123,7 @@ test('visual effects and impact sound settings persist after sanitization', () =
     preset: 'auto', fireworkBrightness: 1.8, bloom: false, bloomStrength: 1.4, bloomRadius: 0.3, bloomThreshold: 1.1,
     saturation: 1.6, motionBlur: 0.8, depthOfField: false, focusDistance: 94, focusRange: 18, bokehScale: 1.2,
     particleBlend: 'screen', shadows: true, adaptive: true, predictiveLoad: false,
+    autoTargets: { particles: false, resolution: false, volume: false, lighting: false, postProcessing: false },
   });
   assert.deepEqual(state.sound, { enabled: false, volume: 0.35 });
   assert.equal(state.show.musicVolume, 0.42);

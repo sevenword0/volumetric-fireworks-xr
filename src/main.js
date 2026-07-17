@@ -7,7 +7,7 @@ import { motionBlur } from 'three/addons/tsl/display/MotionBlur.js';
 import WebGPU from 'three/addons/capabilities/WebGPU.js';
 import { AudioShowController, getPresetForCue } from './audio/audio-show.js';
 import { FireworkSoundEngine } from './audio/firework-sound.js';
-import { ParticleLoadGuard, particleLoadLevel } from './core/particle-load-guard.js';
+import { ParticleLoadGuard, applyLoadOptimizationTargets, particleLoadLevel } from './core/particle-load-guard.js';
 import { ParticleLoadPlanner } from './core/particle-load-planner.js';
 import { BOKEH_SAMPLE_COUNT, bokehDepthOfField } from './core/post-effects.js';
 import { BASE_AIR_DRAG, createAppState } from './core/state.js';
@@ -100,6 +100,7 @@ let interactionPointer = null;
 let interactionLast = new THREE.Vector3();
 let interactionLastTime = 0;
 let loadGuardState = null;
+let rawLoadGuardState = null;
 let loadForecastState = null;
 let showLoadPlan = { eventCount: 0, windowCount: 0, windows: [] };
 let activeQuality = 'medium';
@@ -126,13 +127,14 @@ async function initialize() {
     engine = new FireworkEngine(scene, state, { maxParticles: qualityParticleLimit(resolveQuality()) });
     particleLoadPlanner.setCapacity(engine.maxParticles);
     loadForecastState = particleLoadPlanner.forecast({ enabled: state.quality.predictiveLoad });
-    loadGuardState = particleLoadGuard.update({
+    rawLoadGuardState = particleLoadGuard.update({
       frameMs: 1000 / 60,
       particles: 0,
       capacity: engine.maxParticles,
       forecastParticles: loadForecastState.predictedParticles,
       predictive: state.quality.predictiveLoad,
     });
+    loadGuardState = applyLoadOptimizationTargets(rawLoadGuardState, state.quality.autoTargets, engine.maxParticles);
     engine.setLoadBudget(loadGuardState);
     engine.setGlobalBrightness(state.quality.fireworkBrightness);
     ui.setPerformanceGuard(loadGuardState);
@@ -247,6 +249,11 @@ async function initialize() {
           particleScale: loadGuardState.particleScale,
           reflectionScale: loadGuardState.reflectionScale,
           postProcessing: loadGuardState.postProcessing,
+          volumeLevel: loadGuardState.volumeLevel,
+          lightingLevel: loadGuardState.lightingLevel,
+          particleOptimization: loadGuardState.particleOptimization,
+          particleSafetyOverride: loadGuardState.particleSafetyOverride,
+          optimizationTargets: { ...loadGuardState.optimizationTargets },
           forecastParticles: loadGuardState.forecastParticles,
           forecastRatio: loadGuardState.forecastRatio,
           forecastLevel: loadGuardState.forecastLevel,
@@ -401,8 +408,19 @@ function setupUIEvents() {
     if (event.detail.key === 'predictiveLoad') {
       particleLoadPlanner.clearManualPlan();
       refreshShowLoadPlan();
-      ui.toast(event.detail.value ? '부하구간 사전 연산을 활성화했습니다' : '부하구간 사전 연산을 해제했습니다');
+      ui.setOptimizationMessage(event.detail.value ? '선제 최적화 켜짐' : '선제 최적화 꺼짐', event.detail.value ? 'guarded' : 'normal');
     }
+  });
+  ui.addEventListener('optimizationtarget', (event) => {
+    loadGuardState = applyOptimizationTargets();
+    engine.setLoadBudget(loadGuardState);
+    if (event.detail.key === 'volume') fluid.setQuality(event.detail.value ? activeQuality : resolveQuality());
+    applyRuntimeResolution();
+    ui.setPerformanceGuard(loadGuardState);
+    ui.setOptimizationMessage(
+      `${event.detail.label} ${event.detail.value ? '포함' : '제외'}`,
+      event.detail.value ? 'guarded' : 'normal',
+    );
   });
   ui.addEventListener('statechange', (event) => {
     if (event.detail.path === 'volume.smoke') fluid.setVisible(event.detail.value > 0.001);
@@ -551,6 +569,8 @@ function setupKeyboard() {
     else if (event.key.toLowerCase() === 'v') ui.setTool('vortex');
     else if (event.key.toLowerCase() === 'x') ui.setTool('repel');
     else if (event.key.toLowerCase() === 'c') ui.setTool('camera');
+    else if (event.key.toLowerCase() === 'h') ui.toggleUIVisibility();
+    else if (event.key.toLowerCase() === 'f') void ui.toggleFullscreen();
     else if (event.key === 'ArrowRight') ui.nextPreset(1);
     else if (event.key === 'ArrowLeft') ui.nextPreset(-1);
     else if (event.key === 'Escape') {
@@ -796,14 +816,14 @@ function animate(now) {
   const frameMs = Math.max(0, now - lastFrame);
   const dt = Math.min(0.05, frameMs / 1000);
   lastFrame = now;
-  const previousGuardLevel = loadGuardState?.level ?? 0;
+  const previousGuardLevel = rawLoadGuardState?.level ?? 0;
   loadForecastState = particleLoadPlanner.forecast({
     engineTime: engine.time,
     audioTime: audio.currentTime,
     showPlaying: audio.playing,
     enabled: state.quality.predictiveLoad,
   });
-  loadGuardState = particleLoadGuard.update({
+  rawLoadGuardState = particleLoadGuard.update({
     frameMs,
     particles: engine.activeCount,
     capacity: engine.maxParticles,
@@ -811,8 +831,9 @@ function animate(now) {
     forecastParticles: loadForecastState.predictedParticles,
     predictive: state.quality.predictiveLoad,
   });
+  loadGuardState = applyOptimizationTargets(rawLoadGuardState);
   engine.setLoadBudget(loadGuardState);
-  if (loadGuardState.changed) handleLoadGuardTransition(previousGuardLevel, loadGuardState);
+  if (rawLoadGuardState.changed) handleLoadGuardTransition(previousGuardLevel, loadGuardState);
   if (pendingRuntimeResolutionSync && engine.activeCount === 0) {
     applyRuntimeResolution();
     pendingRuntimeResolutionSync = false;
@@ -827,7 +848,8 @@ function animate(now) {
   world.update(dt);
   xrCube?.update(dt);
   const immediateParticleLevel = particleLoadLevel(engine.activeCount / engine.maxParticles);
-  runtimePostProcessing = loadGuardState.postProcessing && immediateParticleLevel === 0;
+  runtimePostProcessing = loadGuardState.postProcessing
+    && (!state.quality.autoTargets.postProcessing || immediateParticleLevel === 0);
 
   try {
     if (usePostProcessing && runtimePostProcessing && !renderer.xr.isPresenting && !renderFailedOver) getActiveRenderPipeline().render();
@@ -892,16 +914,21 @@ function qualitySettings(quality) {
   }[quality] ?? { pixelRatio: 1.35, reflection: 0.33 };
 }
 
+function applyOptimizationTargets(loadState = rawLoadGuardState) {
+  return applyLoadOptimizationTargets(loadState, state.quality.autoTargets, engine?.maxParticles ?? 1);
+}
+
 function applyRuntimeResolution({ resizeTargets = true } = {}) {
-  const settings = qualitySettings(activeQuality);
+  const resolutionQuality = state.quality.autoTargets.resolution ? activeQuality : resolveQuality();
+  const settings = qualitySettings(resolutionQuality);
   const guardScale = loadGuardState?.resolutionScale ?? 1;
   const reflectionScale = loadGuardState?.reflectionScale ?? 1;
   if (resizeTargets) {
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, Math.max(0.62, settings.pixelRatio * guardScale)));
     if (world?.reflectionNode) world.reflectionNode.resolutionScale = Math.max(0.08, settings.reflection * guardScale * reflectionScale);
   }
-  world?.setPerformanceLevel(loadGuardState?.level ?? 0);
-  fluid?.setPerformanceLevel(loadGuardState?.level ?? 0);
+  world?.setPerformanceLevel(loadGuardState?.lightingLevel ?? loadGuardState?.level ?? 0);
+  fluid?.setPerformanceLevel(loadGuardState?.volumeLevel ?? loadGuardState?.level ?? 0);
   if (resizeTargets) resize();
 }
 
@@ -912,20 +939,23 @@ function handleLoadGuardTransition(previousLevel, next) {
   pendingRuntimeResolutionSync = !safeToResize;
   ui.setPerformanceGuard(next);
   if (next.level > previousLevel && next.level >= 2) {
-    ui.toast(forecastLed
-      ? `고부하 구간 ${loadForecastState?.peakIn?.toFixed?.(1) ?? 0}초 전 · 선제 최적화 활성`
-      : next.level === 3
-        ? '급증 보호 활성 · 잔상과 후처리 부하를 즉시 낮췄습니다'
-        : '파티클 밀도를 조절해 프레임을 보호합니다');
+    const targetCount = next.appliedTargetCount ?? 0;
+    ui.setOptimizationMessage(forecastLed
+      ? `선제 최적화 · ${loadForecastState?.peakIn?.toFixed?.(1) ?? 0}초 전`
+      : next.particleSafetyOverride
+        ? '긴급 파티클 하드 보호'
+        : targetCount > 0
+          ? `부하 최적화 · ${targetCount}/5 적용`
+          : '부하 감지 · 적용 항목 없음', next.level === 3 ? 'emergency' : 'pressure');
   } else if (next.level === 0 && previousLevel > 0) {
-    ui.toast('파티클 부하 안정 · 전체 효과 품질을 복원했습니다');
+    ui.setOptimizationMessage('부하 안정 · 선택 품질 복원', 'normal');
   }
 }
 
-function applyQuality(quality) {
+function applyQuality(quality, { automatic = false } = {}) {
   if (!fluid || !world) return;
   activeQuality = quality;
-  fluid.setQuality(quality);
+  fluid.setQuality(automatic && !state.quality.autoTargets.volume ? resolveQuality() : quality);
   applyRuntimeResolution();
   syncPostProcessing();
   adaptiveLevel = quality === 'high' ? 0 : quality === 'medium' ? 1 : 2;
@@ -935,11 +965,12 @@ function adaptQuality(fps) {
   if (!state.quality.adaptive || renderer.xr.isPresenting || state.quality.preset !== 'auto' || performance.now() < 5000) return;
   if (fps < 35 && adaptiveLevel < 2) {
     adaptiveLevel += 1;
-    applyQuality(adaptiveLevel === 1 ? 'medium' : 'low');
-    ui.toast('프레임 안정화를 위해 렌더 품질을 자동 조정했습니다');
+    applyQuality(adaptiveLevel === 1 ? 'medium' : 'low', { automatic: true });
+    const applied = Number(state.quality.autoTargets.resolution) + Number(state.quality.autoTargets.volume);
+    ui.setOptimizationMessage(applied ? `FPS 최적화 · ${applied}/2 적용` : 'FPS 저하 감지 · 적용 항목 없음', applied ? 'pressure' : 'normal');
   } else if (fps > 56 && adaptiveLevel > 0 && engine.activeCount < 2500) {
     adaptiveLevel -= 1;
-    applyQuality(adaptiveLevel === 0 ? 'high' : 'medium');
+    applyQuality(adaptiveLevel === 0 ? 'high' : 'medium', { automatic: true });
   }
 }
 
