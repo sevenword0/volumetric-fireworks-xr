@@ -7,7 +7,12 @@ import { PARTICLE_FOCUS_TARGET } from '../core/focus-depth.js';
 import { PARTICLE_AFTERIMAGE_TARGET } from '../core/particle-afterimage.js';
 import { particleLoadLevel, particleLoadProfile } from '../core/particle-load-guard.js';
 import { clampRingParticleScale, resolveRingParticleProfile, resolveRingPistilCount } from '../core/ring-particles.js';
-import { MAX_POST_BURST_LIFETIME, MIN_POST_BURST_LIFETIME } from '../core/state.js';
+import {
+  MAX_EFFECTIVE_LAUNCH_POWER,
+  MAX_POST_BURST_LIFETIME,
+  MIN_EFFECTIVE_LAUNCH_POWER,
+  MIN_POST_BURST_LIFETIME,
+} from '../core/state.js';
 import { clampTrailParticleScale } from '../core/trail-particles.js';
 import { BURST_DIRECTION_STRIDE, createSplitDirections, hashString, mulberry32, writeBurstDirections } from './patterns.js';
 import { FIREWORK_PRESETS, LAUNCH_LAYOUTS } from './presets.js';
@@ -406,7 +411,7 @@ export class FireworkEngine extends EventTarget {
     const y = options.y ?? 0.25;
     const scale = options.scale ?? 1;
     const yaw = options.yaw ?? 0;
-    const launchPower = clamp(finite(options.launchPower, 1), 0.25, 2.4);
+    const launchPower = clamp(finite(options.launchPower, 1), MIN_EFFECTIVE_LAUNCH_POWER, MAX_EFFECTIVE_LAUNCH_POWER);
     const explosionPower = clamp(finite(options.explosionPower, 1), 0.5, 1.8);
     const burstScale = clamp(scale * explosionPower, 0.35, 2.2);
     const colorEffects = {

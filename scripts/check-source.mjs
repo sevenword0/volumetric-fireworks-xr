@@ -43,6 +43,9 @@ const html = await readFile(path.join(root, 'index.html'), 'utf8');
 for (const marker of ['id="stage"', 'id="welcome-dialog"', 'id="audio-input"', 'id="audio-timeline"', 'id="show-timeline-seek"', 'id="restart-show"', 'id="xr-button"', 'id="launch-button"', 'id="camera-view"', 'id="camera-fov"', 'id="floor-grid-toggle"', 'id="drag"', 'id="particle-lifetime"', 'id="ring-particle-scale"', 'id="trail-particle-scale"', 'id="initial-launch-power"', 'id="launch-center-x"', 'id="launch-position-range"', 'id="firework-brightness"', 'id="particle-afterimage"', 'id="dof-toggle"', 'id="bokeh-shape"', 'id="bokeh-gamma"', 'id="bokeh-samples"', 'id="music-volume"', 'id="show-choreography"', 'id="show-direction"', 'id="preview-show"', 'id="show-launch-power"', 'id="show-explosion-power"', 'id="show-sequence"', 'id="show-crossfire"', 'id="show-color-variation"', 'id="predictive-load-toggle"', 'id="optimization-status"', 'id="optimize-particles"', 'id="optimize-resolution"', 'id="optimize-volume"', 'id="optimize-lighting"', 'id="optimize-post"', 'id="ui-visibility-button"', 'id="settings-copy-button"', 'id="fullscreen-button"']) {
   if (!html.includes(marker)) throw new Error(`index.html missing ${marker}`);
 }
+if (!html.includes('id="initial-launch-power" type="range" min="50" max="400"')) {
+  throw new Error('index.html must expose the 400% global initial launch power ceiling');
+}
 
 const workflow = await readFile(path.join(root, '.github/workflows/pages.yml'), 'utf8');
 for (const action of ['actions/checkout@v7', 'actions/setup-node@v7', 'actions/configure-pages@v6', 'actions/upload-pages-artifact@v5', 'actions/deploy-pages@v5']) {

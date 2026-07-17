@@ -19,15 +19,13 @@ export const MAX_LAUNCH_CENTER_X = 40;
 export const MIN_LAUNCH_POSITION_RANGE = 0.1;
 export const MAX_LAUNCH_POSITION_RANGE = 2.5;
 export const MIN_INITIAL_LAUNCH_POWER = 0.5;
-export const MAX_INITIAL_LAUNCH_POWER = 2;
+export const MAX_INITIAL_LAUNCH_POWER = 4;
 export const MIN_EFFECTIVE_LAUNCH_POWER = 0.25;
-export const MAX_EFFECTIVE_LAUNCH_POWER = 2.4;
+export const MAX_EFFECTIVE_LAUNCH_POWER = 4;
 export const MIN_CAMERA_FOV = 20;
 export const MAX_CAMERA_FOV = 110;
 export const MIN_BOKEH_SAMPLES = 5;
 export const MAX_BOKEH_SAMPLES = 25;
-
-const DEFAULT_SHOW_PROFILE = getShowChoreographyPreset('grand-finale');
 
 export const DEFAULT_STATE = Object.freeze({
   selectedPresetId: 'gold-chrysanthemum',
@@ -39,16 +37,16 @@ export const DEFAULT_STATE = Object.freeze({
   },
   tool: 'camera',
   camera: {
-    fov: 80,
+    fov: 97,
   },
   physics: {
     gravity: 0.1,
     drag: 2.2355,
-    particleLifetime: 2.45,
+    particleLifetime: 1,
     ringParticleScale: 1,
-    trailParticleScale: 2.65,
+    trailParticleScale: 3,
     windX: 0,
-    windZ: 0.1,
+    windZ: 0.3,
     vortex: 0,
   },
   volume: {
@@ -60,27 +58,27 @@ export const DEFAULT_STATE = Object.freeze({
   world: {
     environment: 'lake',
     floor: 'water',
-    floorGrid: true,
-    waterRoughness: 0.77,
-    reflection: 0.68,
+    floorGrid: false,
+    waterRoughness: 0.15,
+    reflection: 0.02,
   },
   quality: {
     preset: 'high',
-    fireworkBrightness: 0.6,
+    fireworkBrightness: 0.95,
     bloom: true,
-    bloomStrength: 0.8,
+    bloomStrength: 1.4,
     bloomRadius: 0.84,
-    bloomThreshold: 0.16,
-    saturation: 1.15,
+    bloomThreshold: 0.1,
+    saturation: 1.4,
     motionBlur: 0,
     particleAfterimage: 0.8,
     depthOfField: true,
-    focusDistance: 85,
+    focusDistance: 70,
     focusRange: 160,
-    bokehScale: 1.25,
+    bokehScale: 1.35,
     bokehSamples: 25,
-    bokehGamma: 2.25,
-    bokehShape: 'hexagon',
+    bokehGamma: 1.8,
+    bokehShape: 'heart',
     particleBlend: 'additive',
     shadows: false,
     adaptive: false,
@@ -95,22 +93,22 @@ export const DEFAULT_STATE = Object.freeze({
   },
   sound: {
     enabled: true,
-    volume: 0.72,
+    volume: 0.6,
   },
   show: {
     musicVolume: 0.78,
     sensitivity: 0.68,
-    density: 0.62,
-    variety: 0.78,
+    density: 0.43,
+    variety: 1,
     finale: 0.85,
-    choreographyPreset: DEFAULT_SHOW_PROFILE.id,
-    directionMode: DEFAULT_SHOW_PROFILE.directionMode,
-    launchPower: DEFAULT_SHOW_PROFILE.launchPower,
-    explosionPower: DEFAULT_SHOW_PROFILE.explosionPower,
-    positionSpread: DEFAULT_SHOW_PROFILE.positionSpread,
-    sequence: DEFAULT_SHOW_PROFILE.sequence,
-    crossfire: DEFAULT_SHOW_PROFILE.crossfire,
-    colorVariation: DEFAULT_SHOW_PROFILE.colorVariation,
+    choreographyPreset: 'custom',
+    directionMode: 'radial',
+    launchPower: 1.58,
+    explosionPower: 1.34,
+    positionSpread: 1.18,
+    sequence: 0.8,
+    crossfire: 0.93,
+    colorVariation: 0.74,
   },
 });
 
@@ -140,7 +138,7 @@ function boolean(value, fallback) {
 
 export function sanitizeState(candidate = {}) {
   const choreographyPreset = allowed(candidate.show?.choreographyPreset, [...SHOW_CHOREOGRAPHY_PRESET_IDS, 'custom'], DEFAULT_STATE.show.choreographyPreset);
-  const showProfile = getShowChoreographyPreset(choreographyPreset);
+  const showProfile = choreographyPreset === 'custom' ? DEFAULT_STATE.show : getShowChoreographyPreset(choreographyPreset);
   return {
     selectedPresetId: typeof candidate.selectedPresetId === 'string' ? candidate.selectedPresetId : DEFAULT_STATE.selectedPresetId,
     launchLayout: allowed(candidate.launchLayout, ['single', 'pair', 'fan5', 'arc7', 'horizon9', 'circle8', 'finale'], DEFAULT_STATE.launchLayout),
