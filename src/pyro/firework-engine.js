@@ -2,6 +2,7 @@ import * as THREE from 'three/webgpu';
 import { instancedBufferAttribute, mrt, output, positionPrevious, positionView, shapeCircle, subBuild, vec4 } from 'three/tsl';
 import { PARTICLE_FOCUS_TARGET } from '../core/focus-depth.js';
 import { particleLoadLevel, particleLoadProfile } from '../core/particle-load-guard.js';
+import { clampRingParticleScale, resolveRingParticleProfile, resolveRingPistilCount } from '../core/ring-particles.js';
 import { MAX_POST_BURST_LIFETIME, MIN_POST_BURST_LIFETIME } from '../core/state.js';
 import { BURST_DIRECTION_STRIDE, createSplitDirections, hashString, mulberry32, writeBurstDirections } from './patterns.js';
 import { FIREWORK_PRESETS, LAUNCH_LAYOUTS } from './presets.js';
@@ -420,14 +421,16 @@ export class FireworkEngine extends EventTarget {
     const colorVariation = clamp(finite(effects.colorVariation, 0), 0, 1);
     const lifetimeScale = this.postBurstLifetimeScale;
     const countScale = clamp(scale ** 0.55, 0.65, 1.35);
-    const requestedCount = Math.max(1, Math.round(preset.count * countScale));
+    const baseRequestedCount = Math.max(1, Math.round(preset.count * countScale));
+    const ringProfile = resolveRingParticleProfile(preset, baseRequestedCount, this.ringParticleScale);
+    const requestedCount = ringProfile.totalCount;
     const desiredCount = Math.max(1, Math.round(requestedCount * this.loadBudget.burstScale));
     const activeRoom = Math.max(0, this.loadBudget.softLimit - this.particles.length - 48);
     const frameRoom = Math.max(0, this.loadBudget.maxSpawnPerFrame - this._frameSpawnCount);
     const count = Math.min(desiredCount, activeRoom, frameRoom);
     const seed = hashString(`${preset.id}:${this.time.toFixed(3)}:${position.x.toFixed(2)}`);
     const palette = preset.colors;
-    if (count > 0) writeBurstDirections(preset, count, seed, this.directionBuffer);
+    if (count > 0) writeBurstDirections(preset, count, seed, this.directionBuffer, { ringFraction: ringProfile.ringFraction });
     const yawSin = Math.sin(yaw);
     const yawCos = Math.cos(yaw);
 
@@ -495,7 +498,7 @@ export class FireworkEngine extends EventTarget {
     }
 
     const lightColor = writePaletteColor(this._eventColor, palette, 0.25, colorHue);
-    this.dispatchEvent(new CustomEvent('burst', { detail: { preset, position, color: lightColor, scale, count, requestedCount, brightness: this.globalBrightness, colorHue, colorVariation, lifetimeScale } }));
+    this.dispatchEvent(new CustomEvent('burst', { detail: { preset, position, color: lightColor, scale, count, requestedCount, ringRequestedCount: ringProfile.ringCount, ringParticleScale: this.ringParticleScale, brightness: this.globalBrightness, colorHue, colorVariation, lifetimeScale } }));
     this.fluid?.addEmitter(position, (2.2 * preset.smoke * scale) / this.loadBudget.smokeStride, 1.9 * scale * this.globalBrightness, lightColor, 2.2);
     return count;
   }
@@ -530,7 +533,8 @@ export class FireworkEngine extends EventTarget {
     const corePresets = this.getPistilPresets(preset);
     for (let pass = 0; pass < corePresets.length; pass += 1) {
       const corePreset = corePresets[pass];
-      const desiredCount = Math.max(1, Math.round(corePreset.count * this.loadBudget.burstScale));
+      const scaledCoreCount = corePreset.pattern === 'ring' ? resolveRingPistilCount(corePreset.count, this.ringParticleScale) : corePreset.count;
+      const desiredCount = Math.max(1, Math.round(scaledCoreCount * this.loadBudget.burstScale));
       const activeRoom = Math.max(0, this.loadBudget.softLimit - this.particles.length);
       const frameRoom = Math.max(0, this.loadBudget.maxSpawnPerFrame - this._frameSpawnCount);
       const count = Math.min(desiredCount, activeRoom, frameRoom);
@@ -1041,6 +1045,10 @@ export class FireworkEngine extends EventTarget {
 
   get postBurstLifetimeScale() {
     return clamp(finite(this.state.physics?.particleLifetime, 1), MIN_POST_BURST_LIFETIME, MAX_POST_BURST_LIFETIME);
+  }
+
+  get ringParticleScale() {
+    return clampRingParticleScale(this.state.physics?.ringParticleScale, 1);
   }
 
   get renderLimit() {

@@ -1097,6 +1097,10 @@ input[type="range"]::-moz-range-thumb {
   display: block;
 }
 
+.accordion.open .accordion-body.range-stack {
+  display: flex;
+}
+
 .file-button {
   height: 34px;
   display: flex;

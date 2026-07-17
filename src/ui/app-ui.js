@@ -8,6 +8,7 @@ import {
   createCustomPreset,
 } from '../pyro/presets.js';
 import { generateBurstDirections } from '../pyro/patterns.js';
+import { resolveRingParticleProfile } from '../core/ring-particles.js';
 import {
   SHOW_CHOREOGRAPHY_PRESETS,
   SHOW_DIRECTION_OPTIONS,
@@ -23,6 +24,7 @@ const FORMATTERS = {
   'physics.gravity': (value) => `${value.toFixed(2)} g`,
   'physics.drag': (value) => `${(value / BASE_AIR_DRAG).toFixed(2)}×`,
   'physics.particleLifetime': (value) => `${value.toFixed(2)}×`,
+  'physics.ringParticleScale': (value) => `${Math.round(value * 100)}%`,
   'physics.windX': (value) => value.toFixed(1),
   'physics.windZ': (value) => value.toFixed(1),
   'physics.vortex': (value) => value.toFixed(2),
@@ -64,6 +66,7 @@ const RANGE_BINDINGS = [
   ['gravity', 'physics.gravity'],
   ['drag', 'physics.drag', BASE_AIR_DRAG],
   ['particle-lifetime', 'physics.particleLifetime'],
+  ['ring-particle-scale', 'physics.ringParticleScale', 0.01],
   ['wind-x', 'physics.windX'],
   ['wind-z', 'physics.windZ'],
   ['vortex', 'physics.vortex'],
@@ -301,6 +304,7 @@ export class AppUI extends EventTarget {
         }
         if (output) output.textContent = (FORMATTERS[path] ?? String)(value);
         fillRange(input);
+        if (path === 'physics.ringParticleScale') this.drawComposerPreview();
         if (path.startsWith('show.')) this.updateShowChoreographySummary();
         this.dispatchEvent(new CustomEvent('statechange', { detail: { path, value } }));
       };
@@ -441,7 +445,9 @@ export class AppUI extends EventTarget {
     gradient.addColorStop(1, 'transparent');
     context.fillStyle = gradient;
     context.fillRect(0, 0, width, height);
-    const directions = generateBurstDirections(preset, Math.min(180, preset.count), 4312);
+    const ringProfile = resolveRingParticleProfile(preset, preset.count, this.state.physics.ringParticleScale);
+    const previewCount = Math.min(420, ringProfile.totalCount);
+    const directions = generateBurstDirections(preset, previewCount, 4312, { ringFraction: ringProfile.ringFraction });
     for (let index = 0; index < directions.length; index += 1) {
       const direction = directions[index];
       const depth = (direction.z + 1) * 0.5;
