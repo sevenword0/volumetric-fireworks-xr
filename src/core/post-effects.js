@@ -1,9 +1,10 @@
 import { Fn, Loop, convertToTexture, float, int, mix, screenSize, smoothstep, uv, vec2, vec4 } from 'three/tsl';
+import { MAX_BOKEH_GAMMA, MIN_BOKEH_GAMMA } from './bokeh-response.js';
 import { PARTICLE_FOCUS_FULL_COVERAGE, PARTICLE_FOCUS_MIN_COVERAGE } from './focus-depth.js';
 
 const GOLDEN_ANGLE = 2.399963229728653;
 
-const depthBokeh = Fn(([textureNode, viewZNode, particleFocusTextureNode, focusDistanceNode, focusRangeNode, bokehScaleNode, bokehSamplesNode]) => {
+const depthBokeh = Fn(([textureNode, viewZNode, particleFocusTextureNode, focusDistanceNode, focusRangeNode, bokehScaleNode, bokehSamplesNode, bokehGammaNode]) => {
   const baseUV = uv();
   const source = textureNode.sample(baseUV).toVar();
   const packedParticleFocus = particleFocusTextureNode.sample(baseUV);
@@ -29,9 +30,14 @@ const depthBokeh = Fn(([textureNode, viewZNode, particleFocusTextureNode, focusD
     accumulated.addAssign(textureNode.sample(sampleUV).rgb);
   });
 
-  return vec4(mix(source.rgb, accumulated.div(sampleCount), blend), source.a);
+  const blurredColor = accumulated.div(sampleCount).max(0);
+  const bokehHighlight = blurredColor.sub(source.rgb.max(0)).max(0);
+  const safeGamma = bokehGammaNode.clamp(MIN_BOKEH_GAMMA, MAX_BOKEH_GAMMA);
+  const gammaAdjustedHighlight = bokehHighlight.pow(float(1).div(safeGamma));
+  const gammaAdjustedBokeh = blurredColor.add(gammaAdjustedHighlight.sub(bokehHighlight));
+  return vec4(mix(source.rgb, gammaAdjustedBokeh, blend), source.a);
 });
 
-export function bokehDepthOfField(inputNode, viewZNode, particleFocusTextureNode, focusDistanceNode, focusRangeNode, bokehScaleNode, bokehSamplesNode) {
-  return depthBokeh(convertToTexture(inputNode), viewZNode, particleFocusTextureNode, focusDistanceNode, focusRangeNode, bokehScaleNode, bokehSamplesNode);
+export function bokehDepthOfField(inputNode, viewZNode, particleFocusTextureNode, focusDistanceNode, focusRangeNode, bokehScaleNode, bokehSamplesNode, bokehGammaNode) {
+  return depthBokeh(convertToTexture(inputNode), viewZNode, particleFocusTextureNode, focusDistanceNode, focusRangeNode, bokehScaleNode, bokehSamplesNode, bokehGammaNode);
 }
