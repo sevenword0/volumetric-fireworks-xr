@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ParticleLoadGuard, particleLoadLevel, particleLoadProfile } from '../src/core/particle-load-guard.js';
+import { ParticleLoadGuard, applyLoadOptimizationTargets, particleLoadLevel, particleLoadProfile } from '../src/core/particle-load-guard.js';
 
 test('particle thresholds engage before the measured render saturation point', () => {
   assert.equal(particleLoadLevel(0.279), 0);
@@ -98,6 +98,38 @@ test('precomputed load engages protection before particles are spawned', () => {
   const disabled = new ParticleLoadGuard().update({ frameMs: 16, particles: 120, capacity: 12000, forecastParticles: 9000, predictive: false });
   assert.equal(disabled.level, 0);
   assert.equal(disabled.forecastLevel, 0);
+});
+
+test('optimization targets selectively restore excluded effects while preserving emergency particle safety', () => {
+  const guard = new ParticleLoadGuard();
+  const pressure = guard.update({ frameMs: 16, particles: 7000, capacity: 12000 });
+  const excluded = applyLoadOptimizationTargets(pressure, {
+    particles: false,
+    resolution: false,
+    volume: false,
+    lighting: false,
+    postProcessing: false,
+  }, 12000);
+  assert.equal(excluded.burstScale, 1);
+  assert.equal(excluded.resolutionScale, 1);
+  assert.equal(excluded.reflectionScale, 1);
+  assert.equal(excluded.volumeLevel, 0);
+  assert.equal(excluded.lightingLevel, 0);
+  assert.equal(excluded.postProcessing, true);
+  assert.equal(excluded.appliedTargetCount, 0);
+  assert.equal(excluded.particleSafetyOverride, false);
+
+  const emergency = guard.update({ frameMs: 16, particles: 10800, capacity: 12000 });
+  const protectedState = applyLoadOptimizationTargets(emergency, { particles: false }, 12000);
+  assert.equal(protectedState.particleSafetyOverride, true);
+  assert.ok(protectedState.burstScale < 1);
+  assert.ok(protectedState.renderLimit < protectedState.softLimit);
+
+  const framePressure = new ParticleLoadGuard({ escalationFrames: 1 }).update({ frameMs: 60, particles: 100, capacity: 12000 });
+  const frameOnly = applyLoadOptimizationTargets(framePressure, { particles: false }, 12000);
+  assert.equal(frameOnly.level, 3);
+  assert.equal(frameOnly.particleSafetyOverride, false);
+  assert.equal(frameOnly.burstScale, 1);
 });
 
 test('profile lookup clamps unknown levels', () => {

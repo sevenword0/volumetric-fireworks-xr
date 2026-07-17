@@ -88,6 +88,14 @@ const RANGE_BINDINGS = [
   ['show-color-variation', 'show.colorVariation', 0.01],
 ];
 
+const OPTIMIZATION_TARGET_BINDINGS = [
+  ['optimize-particles', 'particles', '파티클·잔광 LOD'],
+  ['optimize-resolution', 'resolution', '해상도·수면 반사'],
+  ['optimize-volume', 'volume', '볼륨 유체'],
+  ['optimize-lighting', 'lighting', '조명·그림자'],
+  ['optimize-post', 'postProcessing', '후처리·보케'],
+];
+
 const SHOW_CHOREOGRAPHY_PATHS = new Set([
   'show.launchPower',
   'show.explosionPower',
@@ -106,6 +114,15 @@ function formatDuration(seconds) {
   const minutes = Math.floor(seconds / 60);
   const remainder = Math.floor(seconds % 60);
   return `${minutes}:${String(remainder).padStart(2, '0')}`;
+}
+
+function performanceGuardTitle(state = {}) {
+  const forecastLed = state.forecastLevel > 0 && state.forecastRatio > state.loadRatio + 0.05;
+  return forecastLed
+    ? `사전 부하 예측 ${state.forecastLevel}단계 · 약 ${(state.forecastParticles ?? 0).toLocaleString()}개 구간 선제 최적화`
+    : state.level > 0
+      ? `급증 보호 ${state.level}단계 · 프레임 예산에 맞춰 생성량 자동 조절`
+      : '파티클 부하 정상';
 }
 
 function fillRange(input) {
@@ -132,6 +149,9 @@ export class AppUI extends EventTarget {
     this.xrAvailable = false;
     this.applyingShowPreset = false;
     this.showPreviewIndex = 0;
+    this.performanceGuardState = null;
+    this.optimizationMessageTimer = null;
+    this.optimizationMessageUntil = 0;
     this.elements = {};
     this.cacheElements();
     this.populateSelects();
@@ -141,6 +161,7 @@ export class AppUI extends EventTarget {
     this.bindComposer();
     this.bindAudio();
     this.bindWorld();
+    this.bindDisplayControls();
     this.bindLaunchDeck();
     this.bindDialogs();
     this.renderPresets();
@@ -154,7 +175,8 @@ export class AppUI extends EventTarget {
 
   cacheElements() {
     const ids = [
-      'renderer-badge', 'fps-readout', 'particle-readout', 'volume-readout', 'xr-button', 'help-button',
+      'renderer-badge', 'optimization-status', 'fps-readout', 'particle-readout', 'volume-readout', 'xr-button', 'help-button',
+      'ui-visibility-button', 'fullscreen-button',
       'preset-grid', 'preset-search', 'preset-category', 'selected-preset-name', 'selected-preset-meta', 'selected-swatch',
       'launch-button', 'launch-layout', 'interaction-hint', 'toast-stack', 'welcome-dialog', 'help-dialog', 'start-experience',
       'design-pattern', 'design-star', 'design-pistil', 'design-palette', 'design-count', 'design-size', 'design-trail', 'design-life',
@@ -164,7 +186,9 @@ export class AppUI extends EventTarget {
       'music-loads',
       'show-choreography', 'show-direction', 'show-choreography-summary', 'preview-show',
       'generate-show', 'play-show', 'environment-select', 'environment-input', 'camera-view', 'floor-mode', 'quality-select', 'particle-blend',
-      'bloom-toggle', 'dof-toggle', 'shadow-toggle', 'adaptive-toggle', 'predictive-load-toggle', 'sound-toggle', 'sound-status',
+      'bloom-toggle', 'dof-toggle', 'shadow-toggle', 'adaptive-toggle', 'predictive-load-toggle',
+      'optimize-particles', 'optimize-resolution', 'optimize-volume', 'optimize-lighting', 'optimize-post',
+      'sound-toggle', 'sound-status',
     ];
     for (const id of ids) this.elements[id.replaceAll('-', '')] = document.getElementById(id);
   }
@@ -634,11 +658,57 @@ export class AppUI extends EventTarget {
         this.dispatchEvent(new CustomEvent('qualitytoggle', { detail: { key, value: element.checked } }));
       });
     }
+    for (const [id, key, label] of OPTIMIZATION_TARGET_BINDINGS) {
+      const element = this.elements[id.replaceAll('-', '')];
+      element.checked = this.state.quality.autoTargets[key];
+      element.addEventListener('change', () => {
+        this.store.set(`quality.autoTargets.${key}`, element.checked);
+        this.dispatchEvent(new CustomEvent('optimizationtarget', { detail: { key, label, value: element.checked } }));
+      });
+    }
     this.elements.soundtoggle.checked = this.state.sound.enabled;
     this.elements.soundtoggle.addEventListener('change', () => {
       this.store.set('sound.enabled', this.elements.soundtoggle.checked);
       this.dispatchEvent(new CustomEvent('soundtoggle', { detail: { value: this.elements.soundtoggle.checked } }));
     });
+  }
+
+  bindDisplayControls() {
+    this.elements.uivisibilitybutton.addEventListener('click', () => this.toggleUIVisibility());
+    this.elements.fullscreenbutton.addEventListener('click', () => { void this.toggleFullscreen(); });
+    document.addEventListener('fullscreenchange', () => this.syncFullscreenButton());
+    this.syncFullscreenButton();
+  }
+
+  toggleUIVisibility(force = !document.body.classList.contains('ui-hidden')) {
+    const hidden = Boolean(force);
+    if (hidden) document.querySelectorAll('dialog[open]').forEach((dialog) => dialog.close());
+    document.body.classList.toggle('ui-hidden', hidden);
+    this.elements.uivisibilitybutton.setAttribute('aria-pressed', String(hidden));
+    this.elements.uivisibilitybutton.setAttribute('aria-label', hidden ? 'UI 표시' : 'UI 숨기기');
+    this.elements.uivisibilitybutton.title = hidden ? 'UI 표시 (H)' : 'UI 숨기기 (H)';
+    this.elements.uivisibilitybutton.querySelector('span').textContent = hidden ? '＋' : 'UI';
+    return hidden;
+  }
+
+  async toggleFullscreen() {
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else if (document.documentElement.requestFullscreen) await document.documentElement.requestFullscreen();
+      else throw new Error('Fullscreen API unavailable');
+    } catch {
+      this.toast('이 브라우저에서는 전체화면을 시작할 수 없습니다', 'error');
+    }
+    this.syncFullscreenButton();
+  }
+
+  syncFullscreenButton() {
+    const active = Boolean(document.fullscreenElement);
+    this.elements.fullscreenbutton.disabled = (document.fullscreenEnabled === false || !document.documentElement.requestFullscreen) && !active;
+    this.elements.fullscreenbutton.setAttribute('aria-pressed', String(active));
+    this.elements.fullscreenbutton.setAttribute('aria-label', active ? '전체화면 종료' : '전체화면 시작');
+    this.elements.fullscreenbutton.title = active ? '전체화면 종료 (F)' : '전체화면 (F)';
+    this.elements.fullscreenbutton.classList.toggle('active', active);
   }
 
   bindLaunchDeck() {
@@ -781,6 +851,7 @@ export class AppUI extends EventTarget {
     this.elements.shadowtoggle.checked = this.state.quality.shadows;
     this.elements.adaptivetoggle.checked = this.state.quality.adaptive;
     this.elements.predictiveloadtoggle.checked = this.state.quality.predictiveLoad;
+    for (const [id, key] of OPTIMIZATION_TARGET_BINDINGS) this.elements[id.replaceAll('-', '')].checked = this.state.quality.autoTargets[key];
     this.elements.soundtoggle.checked = this.state.sound.enabled;
     this.setSoundStatus(this.state.sound.enabled ? '입력 후 활성' : 'MUTED');
   }
@@ -817,16 +888,50 @@ export class AppUI extends EventTarget {
   }
 
   setPerformanceGuard(state) {
+    this.performanceGuardState = state;
     const container = this.elements.particlereadout.parentElement;
     container.dataset.guard = state.name;
     container.dataset.postProcessing = state.postProcessing ? 'on' : 'off';
     container.dataset.renderLimit = String(state.renderLimit ?? '');
+    container.title = performanceGuardTitle(state);
+    if (Date.now() >= this.optimizationMessageUntil) this.renderOptimizationStatus(state);
+  }
+
+  renderOptimizationStatus(state = this.performanceGuardState) {
+    if (!state) return;
+    const status = this.elements.optimizationstatus;
     const forecastLed = state.forecastLevel > 0 && state.forecastRatio > state.loadRatio + 0.05;
-    container.title = forecastLed
-      ? `사전 부하 예측 ${state.forecastLevel}단계 · 약 ${state.forecastParticles.toLocaleString()}개 구간 선제 최적화`
-      : state.level > 0
-        ? `급증 보호 ${state.level}단계 · 프레임 예산에 맞춰 생성량 자동 조절`
-        : '파티클 부하 정상';
+    const label = state.particleSafetyOverride
+      ? '하드 보호'
+      : forecastLed
+        ? `선제 ${state.forecastLevel}단계`
+        : state.level === 3
+          ? '긴급 최적화'
+          : state.level === 2
+            ? '부하 최적화'
+            : state.level === 1
+              ? '경량 최적화'
+              : '대기';
+    const targets = Object.entries(state.optimizationTargets ?? {}).filter(([, enabled]) => enabled).map(([key]) => key);
+    status.dataset.level = state.name ?? 'normal';
+    status.dataset.targets = targets.join(',');
+    status.dataset.targetCount = String(state.appliedTargetCount ?? targets.length);
+    status.dataset.safetyOverride = String(Boolean(state.particleSafetyOverride));
+    status.querySelector('b').textContent = label;
+    status.title = `${performanceGuardTitle(state)} · 적용 ${state.appliedTargetCount ?? targets.length}/5`;
+  }
+
+  setOptimizationMessage(message, level = 'guarded', duration = 3200) {
+    clearTimeout(this.optimizationMessageTimer);
+    this.optimizationMessageUntil = Date.now() + duration;
+    const status = this.elements.optimizationstatus;
+    status.dataset.level = level;
+    status.querySelector('b').textContent = message;
+    status.title = message;
+    this.optimizationMessageTimer = setTimeout(() => {
+      this.optimizationMessageUntil = 0;
+      this.renderOptimizationStatus();
+    }, duration);
   }
 
   setLoadPlan(plan = {}) {

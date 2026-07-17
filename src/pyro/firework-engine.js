@@ -139,6 +139,8 @@ export class FireworkEngine extends EventTarget {
       cullPerFrame: 0,
       renderLimit: this.maxParticles,
       particleScale: 1,
+      particleOptimization: true,
+      particleSafetyOverride: false,
     };
 
     this.positionArray = new Float32Array(this.maxParticles * 3);
@@ -237,6 +239,8 @@ export class FireworkEngine extends EventTarget {
       cullPerFrame: clamp(Math.round(Number(budget.cullPerFrame) || 0), 0, this.maxParticles),
       renderLimit: clamp(Math.round(Number(budget.renderLimit) || this.maxParticles), 1, this.maxParticles),
       particleScale: clamp(finite(budget.particleScale, 1), 0.5, 1),
+      particleOptimization: budget.particleOptimization !== false,
+      particleSafetyOverride: budget.particleSafetyOverride === true,
     };
   }
 
@@ -867,7 +871,8 @@ export class FireworkEngine extends EventTarget {
 
   updateAttributes() {
     const immediateLevel = particleLoadLevel(this.particles.length / this.maxParticles);
-    const immediateProfile = particleLoadProfile(immediateLevel);
+    const effectiveImmediateLevel = this.loadBudget.particleOptimization || immediateLevel >= 3 ? immediateLevel : 0;
+    const immediateProfile = particleLoadProfile(effectiveImmediateLevel);
     const immediateSoftLimit = Math.max(1, Math.floor(this.maxParticles * immediateProfile.softLimitRatio));
     const immediateRenderLimit = Math.max(1, Math.floor(immediateSoftLimit * immediateProfile.renderRatio));
     const renderLimit = Math.min(this.loadBudget.renderLimit, immediateRenderLimit, this.maxParticles);

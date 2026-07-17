@@ -4,9 +4,10 @@ import {
   SHOW_DIRECTION_IDS,
   getShowChoreographyPreset,
 } from '../audio/show-choreography.js';
+import { DEFAULT_OPTIMIZATION_TARGETS } from './particle-load-guard.js';
 
 export const BASE_AIR_DRAG = 0.085;
-export const MAX_AIR_DRAG = 0.85;
+export const MAX_AIR_DRAG = 4.25;
 export const MIN_POST_BURST_LIFETIME = 0.25;
 export const MAX_POST_BURST_LIFETIME = 5;
 
@@ -51,6 +52,7 @@ export const DEFAULT_STATE = Object.freeze({
     shadows: true,
     adaptive: true,
     predictiveLoad: true,
+    autoTargets: { ...DEFAULT_OPTIMIZATION_TARGETS },
   },
   sound: {
     enabled: true,
@@ -126,6 +128,7 @@ export function sanitizeState(candidate = {}) {
       shadows: candidate.quality?.shadows !== false,
       adaptive: candidate.quality?.adaptive !== false,
       predictiveLoad: candidate.quality?.predictiveLoad !== false,
+      autoTargets: Object.fromEntries(Object.keys(DEFAULT_OPTIMIZATION_TARGETS).map((key) => [key, candidate.quality?.autoTargets?.[key] !== false])),
     },
     sound: {
       enabled: candidate.sound?.enabled !== false,
