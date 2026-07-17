@@ -141,6 +141,18 @@ test('music choreography reaches shell velocity, burst scale, mirrored salvos, a
   hueEngine.dispose();
 });
 
+test('the firework engine preserves the fourfold initial launch ceiling', () => {
+  const engine = createEngine(128);
+  const preset = FIREWORK_PRESETS[0];
+  let eventPower = 0;
+  engine.addEventListener('launch', (event) => { eventPower = event.detail.launchPower; });
+  engine.launchNow(preset, { launchPower: 99 });
+  const shell = engine.particles.find((particle) => particle.preset === preset);
+  assert.equal(eventPower, 4);
+  assert.ok(shell.velocity.y > preset.launchVelocity * 3.6);
+  engine.dispose();
+});
+
 test('manual launch center and position range move and scale layout placements', () => {
   const engine = createEngine(128);
   const count = engine.launchLayout(FIREWORK_PRESETS[0], 'pair', { x: 12, spread: 2 });
