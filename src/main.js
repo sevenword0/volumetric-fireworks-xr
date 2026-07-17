@@ -10,7 +10,7 @@ import { FireworkSoundEngine } from './audio/firework-sound.js';
 import { ParticleLoadGuard, applyLoadOptimizationTargets, particleLoadLevel } from './core/particle-load-guard.js';
 import { ParticleLoadPlanner } from './core/particle-load-planner.js';
 import { BOKEH_SAMPLE_COUNT, bokehDepthOfField } from './core/post-effects.js';
-import { BASE_AIR_DRAG, createAppState } from './core/state.js';
+import { BASE_AIR_DRAG, MAX_CAMERA_FOV, MIN_CAMERA_FOV, createAppState } from './core/state.js';
 import { FIREWORK_PRESETS } from './pyro/presets.js';
 import { FireworkEngine } from './pyro/firework-engine.js';
 import { WorldScene } from './scene/world.js';
@@ -29,9 +29,10 @@ const particleLoadPlanner = new ParticleLoadPlanner();
 
 const scene = new THREE.Scene();
 scene.name = 'PYROVERSE XR scene';
-const camera = new THREE.PerspectiveCamera(48, window.innerWidth / window.innerHeight, 0.08, 700);
+const camera = new THREE.PerspectiveCamera(state.camera.fov, window.innerWidth / window.innerHeight, 0.08, 700);
 camera.position.set(0, 18, 68);
 camera.lookAt(0, 22, 0);
+applyCameraFov(state.camera.fov);
 
 const renderer = new THREE.WebGPURenderer({
   canvas,
@@ -198,6 +199,7 @@ async function initialize() {
           position: camera.position.toArray(),
           target: controls.target.toArray(),
           distance: camera.position.distanceTo(controls.target),
+          fov: camera.fov,
           minDistance: controls.minDistance,
           maxDistance: controls.maxDistance,
           minPolarAngle: controls.minPolarAngle,
@@ -429,6 +431,7 @@ function setupUIEvents() {
   });
   ui.addEventListener('statechange', (event) => {
     if (event.detail.path === 'volume.smoke') fluid.setVisible(event.detail.value > 0.001);
+    if (event.detail.path === 'camera.fov') applyCameraFov(event.detail.value);
     if (event.detail.path.startsWith('quality.')) syncPostProcessing();
     if (event.detail.path === 'quality.particleBlend') engine.setBlendingMode(event.detail.value);
     if (event.detail.path === 'quality.fireworkBrightness') engine.setGlobalBrightness(event.detail.value);
@@ -475,6 +478,15 @@ const CAMERA_VIEWS = Object.freeze({
   wide: { position: [0, 9, 170], target: [0, 28, 0] },
   low: { position: [0, 2.2, 94], target: [0, 26, 0] },
 });
+
+function applyCameraFov(value = state.camera.fov) {
+  const fov = clamp(Number(value) || state.camera.fov, MIN_CAMERA_FOV, MAX_CAMERA_FOV);
+  camera.fov = fov;
+  camera.updateProjectionMatrix();
+  canvas.dataset.cameraFov = String(fov);
+  canvas.dataset.cameraProjectionY = camera.projectionMatrix.elements[5].toFixed(6);
+  return fov;
+}
 
 function setCameraView(name = 'default') {
   const view = CAMERA_VIEWS[name] ?? CAMERA_VIEWS.default;
@@ -708,6 +720,7 @@ function createCubeCallbacks() {
 }
 
 const RANGE_BINDINGS_FOR_CUBE = Object.freeze({
+  'camera.fov': 'camera-fov',
   'launch.centerX': 'launch-center-x',
   'launch.positionRange': { id: 'launch-position-range', scale: 0.01 },
   'physics.gravity': 'gravity',

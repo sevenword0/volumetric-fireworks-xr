@@ -17,6 +17,7 @@ import {
 import { BASE_AIR_DRAG } from '../core/state.js';
 
 const FORMATTERS = {
+  'camera.fov': (value) => `${Math.round(value)}°`,
   'launch.centerX': (value) => `${Math.round(value)}m`,
   'launch.positionRange': (value) => `${Math.round(value * 100)}%`,
   'physics.gravity': (value) => `${value.toFixed(2)} g`,
@@ -55,6 +56,7 @@ const FORMATTERS = {
 };
 
 const RANGE_BINDINGS = [
+  ['camera-fov', 'camera.fov'],
   ['launch-center-x', 'launch.centerX'],
   ['launch-position-range', 'launch.positionRange', 0.01],
   ['gravity', 'physics.gravity'],
