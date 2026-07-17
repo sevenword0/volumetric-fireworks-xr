@@ -142,6 +142,7 @@ async function initialize() {
     loadGuardState = applyLoadOptimizationTargets(rawLoadGuardState, state.quality.autoTargets, engine.maxParticles);
     engine.setLoadBudget(loadGuardState);
     engine.setGlobalBrightness(state.quality.fireworkBrightness);
+    canvas.dataset.ringParticleScale = String(state.physics.ringParticleScale);
     ui.setPerformanceGuard(loadGuardState);
     engine.connectFluid(fluid);
     engine.setColliders(world.colliders);
@@ -386,6 +387,8 @@ async function armFireworkSound() {
 
 function wireEngineEvents() {
   engine.addEventListener('burst', (event) => {
+    canvas.dataset.lastBurstRequestedParticles = String(event.detail.requestedCount);
+    canvas.dataset.lastBurstRequestedRingParticles = String(event.detail.ringRequestedCount);
     world.addBurstLight(event.detail);
     camera.updateMatrixWorld();
     camera.getWorldPosition(listenerPosition);
@@ -461,6 +464,11 @@ function setupUIEvents() {
     if (event.detail.path === 'sound.volume') fireworkSound.setVolume();
     if (event.detail.path === 'physics.particleLifetime') {
       engine.setPostBurstLifetimeScale(event.detail.value);
+      particleLoadPlanner.clearManualPlan();
+      refreshShowLoadPlan();
+    }
+    if (event.detail.path === 'physics.ringParticleScale') {
+      canvas.dataset.ringParticleScale = String(event.detail.value);
       particleLoadPlanner.clearManualPlan();
       refreshShowLoadPlan();
     }
@@ -749,6 +757,7 @@ const RANGE_BINDINGS_FOR_CUBE = Object.freeze({
   'physics.gravity': 'gravity',
   'physics.drag': { id: 'drag', scale: BASE_AIR_DRAG },
   'physics.particleLifetime': 'particle-lifetime',
+  'physics.ringParticleScale': { id: 'ring-particle-scale', scale: 0.01 },
   'physics.windX': 'wind-x',
   'physics.vortex': 'vortex',
   'quality.fireworkBrightness': 'firework-brightness',
@@ -763,7 +772,7 @@ function clearSimulation() {
 }
 
 function scheduleSingle(preset, options = {}) {
-  if (state.quality.predictiveLoad) particleLoadPlanner.scheduleLaunch(preset, 'single', engine.time, { ...options, lifetimeScale: state.physics.particleLifetime });
+  if (state.quality.predictiveLoad) particleLoadPlanner.scheduleLaunch(preset, 'single', engine.time, { ...options, lifetimeScale: state.physics.particleLifetime, ringParticleScale: state.physics.ringParticleScale });
   engine.schedule(preset, options);
 }
 
@@ -774,7 +783,7 @@ function refreshShowLoadPlan() {
     ui.setLoadPlan(showLoadPlan);
     return showLoadPlan;
   }
-  showLoadPlan = particleLoadPlanner.planShow(showCues, (presetId) => FIREWORK_PRESETS.find((preset) => preset.id === presetId), { lifetimeScale: state.physics.particleLifetime });
+  showLoadPlan = particleLoadPlanner.planShow(showCues, (presetId) => FIREWORK_PRESETS.find((preset) => preset.id === presetId), { lifetimeScale: state.physics.particleLifetime, ringParticleScale: state.physics.ringParticleScale });
   ui.setLoadPlan(showLoadPlan);
   return showLoadPlan;
 }
@@ -787,7 +796,7 @@ function launchPreset(preset, layout = 'single', options = {}) {
     x: options.x ?? state.launch.centerX,
     spread: options.spread ?? state.launch.positionRange,
   };
-  if (state.quality.predictiveLoad) particleLoadPlanner.scheduleLaunch(preset, layout, engine.time, { ...launchOptions, lifetimeScale: state.physics.particleLifetime });
+  if (state.quality.predictiveLoad) particleLoadPlanner.scheduleLaunch(preset, layout, engine.time, { ...launchOptions, lifetimeScale: state.physics.particleLifetime, ringParticleScale: state.physics.ringParticleScale });
   const count = engine.launchLayout(preset, layout, launchOptions);
   lastManualLaunchPlacement = {
     layout,
@@ -823,7 +832,7 @@ function launchShowCue(cue, manualPreview = false) {
   const options = showCueLaunchOptions(cue);
   let count;
   if (manualPreview) {
-    if (state.quality.predictiveLoad) particleLoadPlanner.scheduleLaunch(preset, cue.layout, engine.time, { ...options, lifetimeScale: state.physics.particleLifetime });
+    if (state.quality.predictiveLoad) particleLoadPlanner.scheduleLaunch(preset, cue.layout, engine.time, { ...options, lifetimeScale: state.physics.particleLifetime, ringParticleScale: state.physics.ringParticleScale });
     count = engine.launchLayout(preset, cue.layout, options);
     ui.toast(`${preset.name} · ${cue.choreography?.directionMode ?? 'music'} · ${count}발 미리보기`);
   } else {

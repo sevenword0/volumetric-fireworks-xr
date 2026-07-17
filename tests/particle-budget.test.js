@@ -171,6 +171,26 @@ test('global post-burst lifetime scales explosion particles but not the shell or
   long.dispose();
 });
 
+test('global ring particle amount changes ring requests without affecting peony requests', () => {
+  const engine = createEngine(1200);
+  engine.state.physics.ringParticleScale = 2;
+  engine.setLoadBudget({ softLimit: 1200, maxSpawnPerFrame: 1200, burstScale: 1, trailScale: 1, renderLimit: 1200 });
+  const details = [];
+  engine.addEventListener('burst', (event) => details.push(event.detail));
+  const ring = FIREWORK_PRESETS.find((preset) => preset.id === 'rainbow-ring');
+  const peony = FIREWORK_PRESETS.find((preset) => preset.id === 'blue-peony');
+
+  engine.burst(ring, new THREE.Vector3(0, 20, 0));
+  engine.burst(peony, new THREE.Vector3(0, 20, 0));
+
+  assert.equal(details[0].requestedCount, ring.count * 2);
+  assert.equal(details[0].ringRequestedCount, ring.count * 2);
+  assert.equal(details[0].ringParticleScale, 2);
+  assert.equal(details[1].requestedCount, peony.count);
+  assert.equal(details[1].ringRequestedCount, 0);
+  engine.dispose();
+});
+
 test('particle motion vectors retain the exact previous simulated position', () => {
   const engine = createEngine(32);
   engine.setLoadBudget({ softLimit: 32, maxSpawnPerFrame: 32, renderLimit: 32 });

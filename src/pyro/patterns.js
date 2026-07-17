@@ -95,7 +95,7 @@ function butterflyPoint(target, t) {
   return target;
 }
 
-function directionForPattern(target, pattern, index, count, random) {
+function directionForPattern(target, pattern, index, count, random, options = {}) {
   const t = (index + 0.5) / count;
 
   switch (pattern) {
@@ -110,11 +110,14 @@ function directionForPattern(target, pattern, index, count, random) {
       return normalizeInto(target, Math.cos(angle), Math.sin(angle) * Math.cos(tilt), Math.sin(angle) * Math.sin(tilt));
     }
     case 'saturn': {
-      if (index < count * 0.48) {
-        const angle = (index / Math.max(1, Math.floor(count * 0.48))) * TAU;
+      const requestedFraction = Number(options.ringFraction);
+      const ringFraction = Number.isFinite(requestedFraction) ? Math.max(0, Math.min(1, requestedFraction)) : 0.48;
+      const ringCount = count <= 1 ? count : Math.max(1, Math.min(count - 1, Math.round(count * ringFraction)));
+      if (index < ringCount) {
+        const angle = (index / Math.max(1, ringCount)) * TAU;
         return normalizeInto(target, Math.cos(angle) * 1.2, Math.sin(angle) * 0.24, Math.sin(angle) * 0.86);
       }
-      return sphereDirection(target, index - Math.floor(count * 0.48), Math.ceil(count * 0.52), random);
+      return sphereDirection(target, index - ringCount, Math.max(1, count - ringCount), random);
     }
     case 'palm': {
       const arms = 12;
@@ -200,7 +203,7 @@ function directionForPattern(target, pattern, index, count, random) {
   }
 }
 
-export function writeBurstDirections(preset, count, seed, target) {
+export function writeBurstDirections(preset, count, seed, target, options = {}) {
   const random = mulberry32(seed);
   const safeCount = Math.max(1, Math.floor(count));
   const direction = { x: 0, y: 0, z: 0 };
@@ -208,7 +211,7 @@ export function writeBurstDirections(preset, count, seed, target) {
     throw new RangeError(`Burst direction buffer requires ${safeCount * BURST_DIRECTION_STRIDE} values`);
   }
   for (let index = 0; index < safeCount; index += 1) {
-    directionForPattern(direction, preset.pattern, index, safeCount, random);
+    directionForPattern(direction, preset.pattern, index, safeCount, random, options);
     let speedScale = 0.82 + random() * 0.34;
     if (preset.pattern === 'dahlia') speedScale *= 1.1 + random() * 0.22;
     if (preset.pattern === 'willow' || preset.pattern === 'horsetail') speedScale *= 0.76 + random() * 0.18;
@@ -227,10 +230,10 @@ export function writeBurstDirections(preset, count, seed, target) {
   return safeCount;
 }
 
-export function generateBurstDirections(preset, count = preset.count, seed = hashString(preset.id ?? 'custom')) {
+export function generateBurstDirections(preset, count = preset.count, seed = hashString(preset.id ?? 'custom'), options = {}) {
   const safeCount = Math.max(1, Math.floor(count));
   const packed = new Float64Array(safeCount * BURST_DIRECTION_STRIDE);
-  writeBurstDirections(preset, safeCount, seed, packed);
+  writeBurstDirections(preset, safeCount, seed, packed, options);
   const result = new Array(safeCount);
   for (let index = 0; index < safeCount; index += 1) {
     const offset = index * BURST_DIRECTION_STRIDE;

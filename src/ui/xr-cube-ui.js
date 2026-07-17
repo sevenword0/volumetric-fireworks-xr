@@ -1,5 +1,6 @@
 import * as THREE from 'three/webgpu';
 import { MAX_BOKEH_GAMMA, MIN_BOKEH_GAMMA } from '../core/bokeh-response.js';
+import { MAX_RING_PARTICLE_SCALE, MIN_RING_PARTICLE_SCALE } from '../core/ring-particles.js';
 import {
   BASE_AIR_DRAG,
   MAX_AIR_DRAG,
@@ -69,6 +70,7 @@ export class XRCubeUI extends EventTarget {
           { label: '다음 프리셋', value: () => '▶', action: () => this.callbacks.nextPreset?.() },
           { label: '발사 중심', value: () => `${Math.round(this.state.launch.centerX)}m`, action: () => this.adjust('launch.centerX', 4, MIN_LAUNCH_CENTER_X, MAX_LAUNCH_CENTER_X) },
           { label: '위치 범위', value: () => `${Math.round(this.state.launch.positionRange * 100)}%`, action: () => this.adjust('launch.positionRange', 0.25, MIN_LAUNCH_POSITION_RANGE, MAX_LAUNCH_POSITION_RANGE) },
+          { label: '고리 입자', value: () => `${Math.round(this.state.physics.ringParticleScale * 100)}%`, action: () => this.adjust('physics.ringParticleScale', 0.25, MIN_RING_PARTICLE_SCALE, MAX_RING_PARTICLE_SCALE) },
           { label: '발사', value: () => 'LAUNCH', action: () => this.callbacks.launch?.() },
         ],
       },

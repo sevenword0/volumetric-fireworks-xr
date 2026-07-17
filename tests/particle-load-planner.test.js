@@ -5,6 +5,7 @@ import { FIREWORK_PRESETS } from '../src/pyro/presets.js';
 
 const brocade = FIREWORK_PRESETS.find((preset) => preset.id === 'brocade-crown');
 const mine = FIREWORK_PRESETS.find((preset) => preset.id === 'fan-mine');
+const ring = FIREWORK_PRESETS.find((preset) => preset.id === 'rainbow-ring');
 
 test('load estimation includes trails and launch layout multiplicity', () => {
   const estimate = estimateParticleLoad(brocade, 1);
@@ -43,6 +44,16 @@ test('post-burst lifetime scale expands the precomputed load window without movi
   assert.equal(long[0].time, normal[0].time);
   assert.ok(long[0].load > normal[0].load);
   assert.ok(Math.abs(long[0].life - normal[0].life * 5) < 1e-9);
+});
+
+test('ring particle amount is included in predictive load without changing non-ring estimates', () => {
+  const sparseRing = estimateParticleLoad(ring, 1, 1, 0.25);
+  const denseRing = estimateParticleLoad(ring, 1, 1, 3);
+  const sparseBrocade = estimateParticleLoad(brocade, 1, 1, 0.25);
+  const denseBrocade = estimateParticleLoad(brocade, 1, 1, 3);
+  assert.ok(denseRing > sparseRing * 4);
+  assert.equal(denseBrocade, sparseBrocade);
+  assert.ok(expandLaunchLoadEvents(ring, 'single', 0, { ringParticleScale: 3 })[0].load > expandLaunchLoadEvents(ring, 'single', 0, { ringParticleScale: 1 })[0].load);
 });
 
 test('music cues are precomputed into high-load timeline windows', () => {
