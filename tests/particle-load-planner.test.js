@@ -56,6 +56,16 @@ test('ring particle amount is included in predictive load without changing non-r
   assert.ok(expandLaunchLoadEvents(ring, 'single', 0, { ringParticleScale: 3 })[0].load > expandLaunchLoadEvents(ring, 'single', 0, { ringParticleScale: 1 })[0].load);
 });
 
+test('trail particle amount expands predictive load and zero removes the trail estimate', () => {
+  const off = estimateParticleLoad(brocade, 1, 1, 1, 0);
+  const normal = estimateParticleLoad(brocade, 1, 1, 1, 1);
+  const dense = estimateParticleLoad(brocade, 1, 1, 1, 3);
+  assert.ok(normal > off);
+  assert.ok(dense > normal);
+  assert.ok(Math.abs((dense - off) - (normal - off) * 3) <= 2);
+  assert.ok(expandLaunchLoadEvents(brocade, 'single', 0, { trailParticleScale: 3 })[0].load > expandLaunchLoadEvents(brocade, 'single', 0, { trailParticleScale: 0 })[0].load);
+});
+
 test('music cues are precomputed into high-load timeline windows', () => {
   const planner = new ParticleLoadPlanner({ capacity: 4000 });
   const plan = planner.planShow([

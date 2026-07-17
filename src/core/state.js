@@ -8,6 +8,7 @@ import { DEFAULT_OPTIMIZATION_TARGETS } from './particle-load-guard.js';
 import { MAX_PARTICLE_AFTERIMAGE, MIN_PARTICLE_AFTERIMAGE } from './particle-afterimage.js';
 import { MAX_BOKEH_GAMMA, MIN_BOKEH_GAMMA } from './bokeh-response.js';
 import { MAX_RING_PARTICLE_SCALE, MIN_RING_PARTICLE_SCALE } from './ring-particles.js';
+import { MAX_TRAIL_PARTICLE_SCALE, MIN_TRAIL_PARTICLE_SCALE } from './trail-particles.js';
 
 export const BASE_AIR_DRAG = 0.085;
 export const MAX_AIR_DRAG = 4.25;
@@ -43,6 +44,7 @@ export const DEFAULT_STATE = Object.freeze({
     drag: BASE_AIR_DRAG,
     particleLifetime: 1,
     ringParticleScale: 1,
+    trailParticleScale: 1,
     windX: 1.6,
     windZ: 0.3,
     vortex: 0.42,
@@ -142,6 +144,7 @@ export function sanitizeState(candidate = {}) {
       drag: finite(candidate.physics?.drag, DEFAULT_STATE.physics.drag, 0, MAX_AIR_DRAG),
       particleLifetime: finite(candidate.physics?.particleLifetime, DEFAULT_STATE.physics.particleLifetime, MIN_POST_BURST_LIFETIME, MAX_POST_BURST_LIFETIME),
       ringParticleScale: finite(candidate.physics?.ringParticleScale, DEFAULT_STATE.physics.ringParticleScale, MIN_RING_PARTICLE_SCALE, MAX_RING_PARTICLE_SCALE),
+      trailParticleScale: finite(candidate.physics?.trailParticleScale, DEFAULT_STATE.physics.trailParticleScale, MIN_TRAIL_PARTICLE_SCALE, MAX_TRAIL_PARTICLE_SCALE),
       windX: finite(candidate.physics?.windX, DEFAULT_STATE.physics.windX, -8, 8),
       windZ: finite(candidate.physics?.windZ, DEFAULT_STATE.physics.windZ, -8, 8),
       vortex: finite(candidate.physics?.vortex, DEFAULT_STATE.physics.vortex, 0, 2),

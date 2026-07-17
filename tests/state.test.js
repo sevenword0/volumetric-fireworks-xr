@@ -19,7 +19,7 @@ test('numeric state is clamped to safe simulation ranges', () => {
   const state = sanitizeState({
     camera: { fov: 999 },
     launch: { centerX: 999, positionRange: 99, initialPower: 99 },
-    physics: { gravity: 20, drag: 99, particleLifetime: 99, ringParticleScale: 99, windX: 99, windZ: -99, vortex: Infinity },
+    physics: { gravity: 20, drag: 99, particleLifetime: 99, ringParticleScale: 99, trailParticleScale: 99, windX: 99, windZ: -99, vortex: Infinity },
     volume: { smoke: 8, buoyancy: -1, scattering: 9, shadow: 10 },
     world: { waterRoughness: 8, reflection: -2 },
     quality: { fireworkBrightness: 9, bloomStrength: 9, bloomRadius: -1, bloomThreshold: 4, saturation: 8, motionBlur: -2, particleAfterimage: 9, focusDistance: -8, focusRange: 999, bokehScale: 9, bokehSamples: 99, bokehGamma: 99 },
@@ -42,9 +42,9 @@ test('numeric state is clamped to safe simulation ranges', () => {
   assert.deepEqual(sanitizeState({ camera: { fov: -10 } }).camera, { fov: 20 });
   assert.deepEqual(state.launch, { centerX: 40, positionRange: 2.5, initialPower: 2 });
   assert.deepEqual(sanitizeState({ launch: { centerX: -999, positionRange: -4, initialPower: -4 } }).launch, { centerX: -40, positionRange: 0.1, initialPower: 0.5 });
-  assert.deepEqual(state.physics, { gravity: 2, drag: 4.25, particleLifetime: 5, ringParticleScale: 3, windX: 8, windZ: -8, vortex: 0.42 });
-  assert.deepEqual(sanitizeState({ physics: { drag: -4, particleLifetime: -4, ringParticleScale: -4 } }).physics, {
-    gravity: 1, drag: 0, particleLifetime: 0.25, ringParticleScale: 0.25, windX: 1.6, windZ: 0.3, vortex: 0.42,
+  assert.deepEqual(state.physics, { gravity: 2, drag: 4.25, particleLifetime: 5, ringParticleScale: 3, trailParticleScale: 3, windX: 8, windZ: -8, vortex: 0.42 });
+  assert.deepEqual(sanitizeState({ physics: { drag: -4, particleLifetime: -4, ringParticleScale: -4, trailParticleScale: -4 } }).physics, {
+    gravity: 1, drag: 0, particleLifetime: 0.25, ringParticleScale: 0.25, trailParticleScale: 0, windX: 1.6, windZ: 0.3, vortex: 0.42,
   });
   assert.deepEqual(state.volume, { smoke: 1.5, buoyancy: 0, scattering: 3, shadow: 4 });
   assert.equal(state.world.waterRoughness, 1);
@@ -107,6 +107,11 @@ test('floor grid visibility persists independently from the floor material', () 
 
 test('global ring particle amount persists', () => {
   assert.equal(sanitizeState({ physics: { ringParticleScale: 2.35 } }).physics.ringParticleScale, 2.35);
+});
+
+test('global trail particle amount persists and can fully disable trails', () => {
+  assert.equal(sanitizeState({ physics: { trailParticleScale: 2.35 } }).physics.trailParticleScale, 2.35);
+  assert.equal(sanitizeState({ physics: { trailParticleScale: 0 } }).physics.trailParticleScale, 0);
 });
 
 test('unknown enum values fall back instead of entering the renderer', () => {

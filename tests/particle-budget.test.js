@@ -8,7 +8,7 @@ function createEngine(maxParticles = 1000) {
   const scene = { add() {}, remove() {} };
   const state = {
     quality: { particleBlend: 'additive' },
-    physics: { gravity: 1, drag: 0.08, particleLifetime: 1, windX: 0, windZ: 0, vortex: 0 },
+    physics: { gravity: 1, drag: 0.08, particleLifetime: 1, ringParticleScale: 1, trailParticleScale: 1, windX: 0, windZ: 0, vortex: 0 },
   };
   return new FireworkEngine(scene, state, { maxParticles });
 }
@@ -188,6 +188,43 @@ test('global post-burst lifetime scales explosion particles but not the shell or
   assert.ok(Math.abs(normal.particles[0].life - existingLife * 2) < 1e-9);
   normal.dispose();
   long.dispose();
+});
+
+test('global trail particle amount controls actual trail spawns before load shedding', () => {
+  const createTrailSource = (scale) => {
+    const engine = createEngine(32);
+    engine.state.physics.trailParticleScale = scale;
+    engine.setLoadBudget({ softLimit: 32, maxSpawnPerFrame: 32, burstScale: 1, trailScale: 1, smokeStride: 1, renderLimit: 32 });
+    const source = engine.acquire();
+    source.position.set(0, 12, 0);
+    source.velocity.set(0, 0, 0);
+    source.life = 3;
+    source.size = 0.2;
+    source.drag = 0;
+    source.gravityScale = 0;
+    source.trail = 1;
+    source.trailRate = 60.1;
+    source.smoke = 0;
+    source.crackle = 0;
+    source.split = 0;
+    return engine;
+  };
+
+  const off = createTrailSource(0);
+  const normal = createTrailSource(1);
+  const dense = createTrailSource(3);
+  off.update(1 / 60);
+  normal.update(1 / 60);
+  dense.update(1 / 60);
+
+  assert.equal(off.performanceDiagnostics.frameTrailSpawns, 0);
+  assert.equal(normal.performanceDiagnostics.frameTrailSpawns, 1);
+  assert.equal(dense.performanceDiagnostics.frameTrailSpawns, 3);
+  assert.deepEqual([off.activeCount, normal.activeCount, dense.activeCount], [1, 2, 4]);
+  assert.equal(dense.performanceDiagnostics.trailParticleScale, 3);
+  off.dispose();
+  normal.dispose();
+  dense.dispose();
 });
 
 test('global ring particle amount changes ring requests without affecting peony requests', () => {
