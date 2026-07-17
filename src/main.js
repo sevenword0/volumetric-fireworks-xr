@@ -1,6 +1,6 @@
 import './style.css';
 import * as THREE from 'three/webgpu';
-import { int, mrt, output, pass, saturation, uniform, vec4, velocity } from 'three/tsl';
+import { convertToTexture, int, mrt, output, pass, saturation, uniform, vec4, velocity } from 'three/tsl';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { bloom } from 'three/addons/tsl/display/BloomNode.js';
 import { motionBlur } from 'three/addons/tsl/display/MotionBlur.js';
@@ -77,6 +77,7 @@ let xrCube;
 let renderPipeline;
 let bokehRenderPipeline;
 let bloomNode;
+let bokehBloomNode;
 let scenePass;
 let saturationAmount;
 let motionBlurAmount;
@@ -317,17 +318,25 @@ function setupPostProcessing() {
   const composite = motionColor.add(bloomNode);
   renderPipeline = new THREE.RenderPipeline(renderer);
   renderPipeline.outputNode = vec4(saturation(composite.rgb, saturationAmount), composite.a);
-  const bokehColor = bokehDepthOfField(composite, scenePass.getViewZNode(), particleFocusTexture, focusDistanceAmount, focusRangeAmount, bokehScaleAmount, bokehSamplesAmount, bokehGammaAmount);
+  // Resolve the particle/scene focal plane before bloom expands bright pixels
+  // beyond the geometry depth footprint. This keeps sky fireworks independent
+  // from the finite water mesh while preserving their real particle depth.
+  const bokehColor = bokehDepthOfField(motionColor, scenePass.getViewZNode(), particleFocusTexture, focusDistanceAmount, focusRangeAmount, bokehScaleAmount, bokehSamplesAmount, bokehGammaAmount);
+  const bokehTexture = convertToTexture(bokehColor);
+  bokehBloomNode = bloom(bokehTexture);
+  const bokehComposite = bokehTexture.add(bokehBloomNode);
   bokehRenderPipeline = new THREE.RenderPipeline(renderer);
-  bokehRenderPipeline.outputNode = vec4(saturation(bokehColor.rgb, saturationAmount), bokehColor.a);
+  bokehRenderPipeline.outputNode = vec4(saturation(bokehComposite.rgb, saturationAmount), bokehComposite.a);
   syncPostProcessing();
 }
 
 function syncPostProcessing() {
-  if (!bloomNode || !saturationAmount || !motionBlurAmount || !focusDistanceAmount || !focusRangeAmount || !bokehScaleAmount || !bokehSamplesAmount || !bokehGammaAmount) return;
-  bloomNode.threshold.value = state.quality.bloomThreshold;
-  bloomNode.strength.value = state.quality.bloom ? state.quality.bloomStrength : 0;
-  bloomNode.radius.value = state.quality.bloomRadius;
+  if (!bloomNode || !bokehBloomNode || !saturationAmount || !motionBlurAmount || !focusDistanceAmount || !focusRangeAmount || !bokehScaleAmount || !bokehSamplesAmount || !bokehGammaAmount) return;
+  for (const activeBloomNode of [bloomNode, bokehBloomNode]) {
+    activeBloomNode.threshold.value = state.quality.bloomThreshold;
+    activeBloomNode.strength.value = state.quality.bloom ? state.quality.bloomStrength : 0;
+    activeBloomNode.radius.value = state.quality.bloomRadius;
+  }
   saturationAmount.value = state.quality.saturation;
   motionBlurAmount.value = state.quality.motionBlur;
   focusDistanceAmount.value = state.quality.focusDistance;
@@ -338,6 +347,7 @@ function syncPostProcessing() {
   canvas.dataset.bokehSamples = String(state.quality.bokehSamples);
   canvas.dataset.bokehGamma = String(state.quality.bokehGamma);
   canvas.dataset.particleFocusDepth = PARTICLE_FOCUS_TARGET;
+  canvas.dataset.focusEffectOrder = 'motion-dof-texture-bloom';
   usePostProcessing = state.quality.bloom
     || (state.quality.depthOfField && state.quality.bokehScale > 0.001)
     || state.quality.motionBlur > 0.001

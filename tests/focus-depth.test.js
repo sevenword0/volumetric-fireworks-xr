@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { resolveParticleFocusDistance } from '../src/core/focus-depth.js';
 
-test('background depth remains authoritative where no particle is rendered', () => {
+test('geometry depth remains authoritative where no particle is rendered', () => {
   assert.equal(resolveParticleFocusDistance(140, 0, 0), 140);
 });
 
