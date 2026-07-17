@@ -2,6 +2,7 @@ import * as THREE from 'three/webgpu';
 import { instancedBufferAttribute, modelViewMatrix, mrt, output, positionPrevious, positionView, shapeCircle, smoothstep, subBuild, uniform, uv, vec4 } from 'three/tsl';
 import { PARTICLE_BOKEH_GEOMETRY_GUARD, PARTICLE_BOKEH_SPRITE_EXPANSION } from '../core/bokeh-response.js';
 import { PARTICLE_FOCUS_TARGET } from '../core/focus-depth.js';
+import { PARTICLE_AFTERIMAGE_TARGET } from '../core/particle-afterimage.js';
 import { particleLoadLevel, particleLoadProfile } from '../core/particle-load-guard.js';
 import { clampRingParticleScale, resolveRingParticleProfile, resolveRingPistilCount } from '../core/ring-particles.js';
 import { MAX_POST_BURST_LIFETIME, MIN_POST_BURST_LIFETIME } from '../core/state.js';
@@ -190,9 +191,10 @@ export class FireworkEngine extends EventTarget {
     material.colorNode = this.particleColorNode;
     material.scaleNode = instancedBufferAttribute(this.scaleAttribute).mul(this.particleBokehGeometryExpansionNode);
     material.opacityNode = this.renderParticleOpacityNode;
-    const particleFocusMRT = mrt({
+    const particleMRT = mrt({
       '': output,
       [PARTICLE_FOCUS_TARGET]: vec4(positionView.z.negate(), 0, 0, this.renderParticleOpacityNode),
+      [PARTICLE_AFTERIMAGE_TARGET]: vec4(this.particleColorNode.mul(this.renderParticleOpacityNode), this.renderParticleOpacityNode),
     });
     const particleFocusBlend = new THREE.BlendMode(THREE.CustomBlending);
     particleFocusBlend.blendSrc = THREE.SrcAlphaFactor;
@@ -201,8 +203,16 @@ export class FireworkEngine extends EventTarget {
     particleFocusBlend.blendSrcAlpha = THREE.OneFactor;
     particleFocusBlend.blendDstAlpha = THREE.OneMinusSrcAlphaFactor;
     particleFocusBlend.blendEquationAlpha = THREE.AddEquation;
-    particleFocusMRT.setBlendMode(PARTICLE_FOCUS_TARGET, particleFocusBlend);
-    material.mrtNode = particleFocusMRT;
+    particleMRT.setBlendMode(PARTICLE_FOCUS_TARGET, particleFocusBlend);
+    const particleAfterimageBlend = new THREE.BlendMode(THREE.CustomBlending);
+    particleAfterimageBlend.blendSrc = THREE.OneFactor;
+    particleAfterimageBlend.blendDst = THREE.OneFactor;
+    particleAfterimageBlend.blendEquation = THREE.AddEquation;
+    particleAfterimageBlend.blendSrcAlpha = THREE.OneFactor;
+    particleAfterimageBlend.blendDstAlpha = THREE.OneFactor;
+    particleAfterimageBlend.blendEquationAlpha = THREE.AddEquation;
+    particleMRT.setBlendMode(PARTICLE_AFTERIMAGE_TARGET, particleAfterimageBlend);
+    material.mrtNode = particleMRT;
     material.transparent = true;
     material.depthWrite = false;
     material.depthTest = true;

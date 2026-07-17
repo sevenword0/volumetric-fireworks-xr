@@ -28,3 +28,21 @@ test('particle bokeh coverage expands beyond a guarded sprite seed in screen spa
   assert.match(engineSource, /shapeCircle\(guardedCircleUV\)/);
   assert.match(engineSource, /material\.scaleNode = instancedBufferAttribute\(this\.scaleAttribute\)\.mul\(this\.particleBokehGeometryExpansionNode\);/);
 });
+
+test('afterimage history accumulates only the particle emission MRT before motion blur', async () => {
+  const mainSource = await readFile(new URL('../src/main.js', import.meta.url), 'utf8');
+  const engineSource = await readFile(new URL('../src/pyro/firework-engine.js', import.meta.url), 'utf8');
+  const particleTarget = mainSource.indexOf('scenePass.getTextureNode(PARTICLE_AFTERIMAGE_TARGET)');
+  const history = mainSource.indexOf('afterImage(particleAfterimageTexture', particleTarget);
+  const residual = mainSource.indexOf('accumulatedParticleAfterimage.sub(particleAfterimageTexture)', history);
+  const composite = mainSource.indexOf('sceneWithParticleAfterimage', residual);
+  const materialized = mainSource.indexOf('convertToTexture(sceneWithParticleAfterimage)', composite);
+  const motion = mainSource.indexOf('motionBlur(sceneWithParticleAfterimageTexture', materialized);
+  assert.ok(particleTarget >= 0, 'missing dedicated particle afterimage MRT texture');
+  assert.ok(history > particleTarget, 'particle history must consume the dedicated particle texture');
+  assert.ok(residual > history, 'current particles must be removed from the accumulated history to avoid double brightness');
+  assert.ok(materialized > composite, 'particle-only residual must be materialized for downstream texture sampling');
+  assert.ok(motion > materialized, 'particle-only residual must be composited before velocity motion blur');
+  assert.match(engineSource, /\[PARTICLE_AFTERIMAGE_TARGET\]: vec4\(this\.particleColorNode\.mul\(this\.renderParticleOpacityNode\)/);
+  assert.doesNotMatch(mainSource, /afterImage\(sceneColor/);
+});

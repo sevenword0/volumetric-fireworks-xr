@@ -5,6 +5,7 @@ import {
   getShowChoreographyPreset,
 } from '../audio/show-choreography.js';
 import { DEFAULT_OPTIMIZATION_TARGETS } from './particle-load-guard.js';
+import { MAX_PARTICLE_AFTERIMAGE, MIN_PARTICLE_AFTERIMAGE } from './particle-afterimage.js';
 import { MAX_BOKEH_GAMMA, MIN_BOKEH_GAMMA } from './bokeh-response.js';
 import { MAX_RING_PARTICLE_SCALE, MIN_RING_PARTICLE_SCALE } from './ring-particles.js';
 
@@ -68,6 +69,7 @@ export const DEFAULT_STATE = Object.freeze({
     bloomThreshold: 0.78,
     saturation: 1,
     motionBlur: 0.62,
+    particleAfterimage: 0.42,
     depthOfField: true,
     focusDistance: 70,
     focusRange: 26,
@@ -166,6 +168,7 @@ export function sanitizeState(candidate = {}) {
       bloomThreshold: finite(candidate.quality?.bloomThreshold, DEFAULT_STATE.quality.bloomThreshold, 0, 2),
       saturation: finite(candidate.quality?.saturation, DEFAULT_STATE.quality.saturation, 0, 2),
       motionBlur: finite(candidate.quality?.motionBlur, DEFAULT_STATE.quality.motionBlur, 0, 3),
+      particleAfterimage: finite(candidate.quality?.particleAfterimage, DEFAULT_STATE.quality.particleAfterimage, MIN_PARTICLE_AFTERIMAGE, MAX_PARTICLE_AFTERIMAGE),
       depthOfField: candidate.quality?.depthOfField !== false,
       focusDistance: finite(candidate.quality?.focusDistance, DEFAULT_STATE.quality.focusDistance, 2, 300),
       focusRange: finite(candidate.quality?.focusRange, DEFAULT_STATE.quality.focusRange, 1, 160),
