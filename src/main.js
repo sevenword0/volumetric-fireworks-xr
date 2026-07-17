@@ -7,9 +7,10 @@ import { motionBlur } from 'three/addons/tsl/display/MotionBlur.js';
 import WebGPU from 'three/addons/capabilities/WebGPU.js';
 import { AudioShowController, getPresetForCue } from './audio/audio-show.js';
 import { FireworkSoundEngine } from './audio/firework-sound.js';
+import { PARTICLE_FOCUS_TARGET } from './core/focus-depth.js';
 import { ParticleLoadGuard, applyLoadOptimizationTargets, particleLoadLevel } from './core/particle-load-guard.js';
 import { ParticleLoadPlanner } from './core/particle-load-planner.js';
-import { BOKEH_SAMPLE_COUNT, bokehDepthOfField } from './core/post-effects.js';
+import { bokehDepthOfField } from './core/post-effects.js';
 import { BASE_AIR_DRAG, MAX_CAMERA_FOV, MIN_CAMERA_FOV, createAppState } from './core/state.js';
 import { FIREWORK_PRESETS } from './pyro/presets.js';
 import { FireworkEngine } from './pyro/firework-engine.js';
@@ -82,6 +83,7 @@ let motionBlurAmount;
 let focusDistanceAmount;
 let focusRangeAmount;
 let bokehScaleAmount;
+let bokehSamplesAmount;
 let usePostProcessing = true;
 let runtimePostProcessing = true;
 let renderFailedOver = false;
@@ -223,7 +225,8 @@ async function initialize() {
           focusDistance: state.quality.focusDistance,
           focusRange: state.quality.focusRange,
           bokehScale: state.quality.bokehScale,
-          bokehSamples: BOKEH_SAMPLE_COUNT,
+          bokehSamples: state.quality.bokehSamples,
+          particleFocusDepth: PARTICLE_FOCUS_TARGET,
           particleBlend: engine.blendingMode,
           predictiveLoad: state.quality.predictiveLoad,
           postProcessingActive: runtimePostProcessing,
@@ -285,27 +288,38 @@ async function initialize() {
 
 function setupPostProcessing() {
   scenePass = pass(scene, camera);
-  scenePass.setMRT(mrt({ output, velocity }));
+  const sceneMRT = mrt({ output, velocity, [PARTICLE_FOCUS_TARGET]: vec4(0) });
+  const nativeMerge = sceneMRT.merge.bind(sceneMRT);
+  sceneMRT.merge = (materialMRT) => {
+    const mergedMRT = nativeMerge(materialMRT);
+    // three r185 drops custom blend modes while merging a pass MRT with a
+    // material MRT. Preserve them so translucent particle depth accumulates.
+    mergedMRT.blendModes = { ...sceneMRT.blendModes, ...materialMRT.blendModes };
+    return mergedMRT;
+  };
+  scenePass.setMRT(sceneMRT);
   const sceneColor = scenePass.getTextureNode();
+  const particleFocusTexture = scenePass.getTextureNode(PARTICLE_FOCUS_TARGET);
   saturationAmount = uniform(state.quality.saturation);
   motionBlurAmount = uniform(state.quality.motionBlur);
   focusDistanceAmount = uniform(state.quality.focusDistance);
   focusRangeAmount = uniform(state.quality.focusRange);
   bokehScaleAmount = uniform(state.quality.bokehScale);
+  bokehSamplesAmount = uniform(state.quality.bokehSamples, 'int');
   const velocityTexture = scenePass.getTextureNode('velocity').mul(motionBlurAmount);
   const motionColor = motionBlur(sceneColor, velocityTexture, int(8));
   bloomNode = bloom(motionColor);
   const composite = motionColor.add(bloomNode);
   renderPipeline = new THREE.RenderPipeline(renderer);
   renderPipeline.outputNode = vec4(saturation(composite.rgb, saturationAmount), composite.a);
-  const bokehColor = bokehDepthOfField(composite, scenePass.getViewZNode(), focusDistanceAmount, focusRangeAmount, bokehScaleAmount);
+  const bokehColor = bokehDepthOfField(composite, scenePass.getViewZNode(), particleFocusTexture, focusDistanceAmount, focusRangeAmount, bokehScaleAmount, bokehSamplesAmount);
   bokehRenderPipeline = new THREE.RenderPipeline(renderer);
   bokehRenderPipeline.outputNode = vec4(saturation(bokehColor.rgb, saturationAmount), bokehColor.a);
   syncPostProcessing();
 }
 
 function syncPostProcessing() {
-  if (!bloomNode || !saturationAmount || !motionBlurAmount || !focusDistanceAmount || !focusRangeAmount || !bokehScaleAmount) return;
+  if (!bloomNode || !saturationAmount || !motionBlurAmount || !focusDistanceAmount || !focusRangeAmount || !bokehScaleAmount || !bokehSamplesAmount) return;
   bloomNode.threshold.value = state.quality.bloomThreshold;
   bloomNode.strength.value = state.quality.bloom ? state.quality.bloomStrength : 0;
   bloomNode.radius.value = state.quality.bloomRadius;
@@ -314,6 +328,9 @@ function syncPostProcessing() {
   focusDistanceAmount.value = state.quality.focusDistance;
   focusRangeAmount.value = state.quality.focusRange;
   bokehScaleAmount.value = state.quality.bokehScale;
+  bokehSamplesAmount.value = state.quality.bokehSamples;
+  canvas.dataset.bokehSamples = String(state.quality.bokehSamples);
+  canvas.dataset.particleFocusDepth = PARTICLE_FOCUS_TARGET;
   usePostProcessing = state.quality.bloom
     || (state.quality.depthOfField && state.quality.bokehScale > 0.001)
     || state.quality.motionBlur > 0.001
@@ -729,6 +746,7 @@ const RANGE_BINDINGS_FOR_CUBE = Object.freeze({
   'physics.windX': 'wind-x',
   'physics.vortex': 'vortex',
   'quality.fireworkBrightness': 'firework-brightness',
+  'quality.bokehSamples': 'bokeh-samples',
 });
 
 function clearSimulation() {

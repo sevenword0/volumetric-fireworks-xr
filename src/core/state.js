@@ -16,6 +16,8 @@ export const MIN_LAUNCH_POSITION_RANGE = 0.1;
 export const MAX_LAUNCH_POSITION_RANGE = 2.5;
 export const MIN_CAMERA_FOV = 20;
 export const MAX_CAMERA_FOV = 110;
+export const MIN_BOKEH_SAMPLES = 5;
+export const MAX_BOKEH_SAMPLES = 25;
 
 export const DEFAULT_STATE = Object.freeze({
   selectedPresetId: 'gold-chrysanthemum',
@@ -61,6 +63,7 @@ export const DEFAULT_STATE = Object.freeze({
     focusDistance: 70,
     focusRange: 26,
     bokehScale: 0.65,
+    bokehSamples: 13,
     particleBlend: 'additive',
     shadows: true,
     adaptive: true,
@@ -92,6 +95,10 @@ function finite(value, fallback, min = -Infinity, max = Infinity) {
   const number = Number(value);
   if (!Number.isFinite(number)) return fallback;
   return Math.min(max, Math.max(min, number));
+}
+
+function integer(value, fallback, min, max) {
+  return Math.round(finite(value, fallback, min, max));
 }
 
 function allowed(value, values, fallback) {
@@ -144,6 +151,7 @@ export function sanitizeState(candidate = {}) {
       focusDistance: finite(candidate.quality?.focusDistance, DEFAULT_STATE.quality.focusDistance, 2, 300),
       focusRange: finite(candidate.quality?.focusRange, DEFAULT_STATE.quality.focusRange, 1, 160),
       bokehScale: finite(candidate.quality?.bokehScale, DEFAULT_STATE.quality.bokehScale, 0, 2),
+      bokehSamples: integer(candidate.quality?.bokehSamples, DEFAULT_STATE.quality.bokehSamples, MIN_BOKEH_SAMPLES, MAX_BOKEH_SAMPLES),
       particleBlend: allowed(candidate.quality?.particleBlend, ['additive', 'screen', 'alpha'], DEFAULT_STATE.quality.particleBlend),
       shadows: candidate.quality?.shadows !== false,
       adaptive: candidate.quality?.adaptive !== false,

@@ -1,5 +1,6 @@
 import * as THREE from 'three/webgpu';
-import { instancedBufferAttribute, positionPrevious, shapeCircle, subBuild } from 'three/tsl';
+import { instancedBufferAttribute, mrt, output, positionPrevious, positionView, shapeCircle, subBuild, vec4 } from 'three/tsl';
+import { PARTICLE_FOCUS_TARGET } from '../core/focus-depth.js';
 import { particleLoadLevel, particleLoadProfile } from '../core/particle-load-guard.js';
 import { MAX_POST_BURST_LIFETIME, MIN_POST_BURST_LIFETIME } from '../core/state.js';
 import { BURST_DIRECTION_STRIDE, createSplitDirections, hashString, mulberry32, writeBurstDirections } from './patterns.js';
@@ -164,6 +165,19 @@ export class FireworkEngine extends EventTarget {
     material.colorNode = this.particleColorNode;
     material.scaleNode = instancedBufferAttribute(this.scaleAttribute);
     material.opacityNode = this.particleOpacityNode;
+    const particleFocusMRT = mrt({
+      '': output,
+      [PARTICLE_FOCUS_TARGET]: vec4(positionView.z.negate(), 0, 0, this.particleOpacityNode),
+    });
+    const particleFocusBlend = new THREE.BlendMode(THREE.CustomBlending);
+    particleFocusBlend.blendSrc = THREE.SrcAlphaFactor;
+    particleFocusBlend.blendDst = THREE.OneMinusSrcAlphaFactor;
+    particleFocusBlend.blendEquation = THREE.AddEquation;
+    particleFocusBlend.blendSrcAlpha = THREE.OneFactor;
+    particleFocusBlend.blendDstAlpha = THREE.OneMinusSrcAlphaFactor;
+    particleFocusBlend.blendEquationAlpha = THREE.AddEquation;
+    particleFocusMRT.setBlendMode(PARTICLE_FOCUS_TARGET, particleFocusBlend);
+    material.mrtNode = particleFocusMRT;
     material.transparent = true;
     material.depthWrite = false;
     material.depthTest = true;
