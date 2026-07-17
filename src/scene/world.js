@@ -11,6 +11,7 @@ import {
   vec2,
 } from 'three/tsl';
 import { enableVolumeShadowCasters } from '../core/render-layers.js';
+import { MAX_WATER_WAVE_STRENGTH, getWaterSurfaceProfile } from '../core/water-surface.js';
 
 const ENVIRONMENTS = Object.freeze({
   lake: { top: 0x050918, bottom: 0x132340, fog: 0x07111f, fogDensity: 0.008, moon: 0xbfd9ff, ambient: 0x263d66 },
@@ -46,7 +47,13 @@ export class WorldScene extends EventTarget {
     this.skyTop = uniform(new THREE.Color(ENVIRONMENTS.lake.top));
     this.skyBottom = uniform(new THREE.Color(ENVIRONMENTS.lake.bottom));
     this.reflectionStrength = uniform(state.world.reflection);
-    this.waveStrength = uniform(0.0025 + state.world.waterRoughness * 0.012);
+    const waterProfile = getWaterSurfaceProfile(state.world.waterRoughness);
+    this.waterProfile = waterProfile;
+    this.appliedWaterRoughness = waterProfile.roughness;
+    this.waterRoughness = uniform(waterProfile.roughness);
+    this.reflectionMip = uniform(waterProfile.reflectionMip);
+    this.reflectionClarity = uniform(waterProfile.reflectionClarity);
+    this.waveStrength = uniform(waterProfile.waveStrength);
 
     scene.backgroundNode = normalWorldGeometry.y.smoothstep(-0.35, 0.85).mix(this.skyBottom, this.skyTop);
     scene.fog = new THREE.FogExp2(ENVIRONMENTS.lake.fog, ENVIRONMENTS.lake.fogDensity);
@@ -77,6 +84,7 @@ export class WorldScene extends EventTarget {
     this.createStarField();
     this.createEnvironmentGeometry();
     this.createFloor();
+    this.publishWaterSurfaceMetrics();
     this.createLightPool();
     this.setEnvironment(state.world.environment);
     this.setFloorMode(state.world.floor);
@@ -211,17 +219,19 @@ export class WorldScene extends EventTarget {
       sin(floorUv.x.mul(7).add(floorUv.y.mul(4)).add(time.mul(0.75))),
       cos(floorUv.y.mul(8).sub(floorUv.x.mul(3)).sub(time.mul(0.58))),
     ).mul(this.waveStrength);
-    this.reflectionNode = reflector({ resolutionScale: 0.38, bounces: false });
+    this.reflectionNode = reflector({ resolutionScale: 0.38, bounces: false, generateMipmaps: true });
     this.reflectionNode.target.rotateX(-Math.PI / 2);
     this.reflectionNode.target.position.y = 0.015;
     this.reflectionNode.uvNode = this.reflectionNode.uvNode.add(wave);
+    this.reflectionNode.levelNode = this.reflectionMip;
     this.scene.add(this.reflectionNode.target);
 
     const waterMaterial = new THREE.MeshStandardNodeMaterial();
     waterMaterial.name = 'Reflective procedural water';
     waterMaterial.colorNode = color(0x07121c);
-    waterMaterial.emissiveNode = this.reflectionNode.mul(this.reflectionStrength);
+    waterMaterial.emissiveNode = this.reflectionNode.mul(this.reflectionStrength).mul(this.reflectionClarity);
     waterMaterial.roughness = this.state.world.waterRoughness;
+    waterMaterial.roughnessNode = this.waterRoughness;
     waterMaterial.metalness = 0.65;
     waterMaterial.transparent = false;
     this.waterMaterial = waterMaterial;
@@ -301,7 +311,7 @@ export class WorldScene extends EventTarget {
   }
 
   addRipple(position, strength) {
-    this.waveStrength.value = Math.min(0.024, 0.0025 + this.state.world.waterRoughness * 0.012 + strength * 0.0003);
+    this.waveStrength.value = Math.min(MAX_WATER_WAVE_STRENGTH + 0.006, this.waterProfile.waveStrength + strength * 0.0003);
     this.dispatchEvent(new CustomEvent('ripple', { detail: { position, strength } }));
   }
 
@@ -355,9 +365,15 @@ export class WorldScene extends EventTarget {
   update(dt) {
     this.clock += dt;
     this.reflectionStrength.value = this.state.world.reflection;
-    this.waterMaterial.roughness = this.state.world.waterRoughness;
-    const targetWave = 0.0025 + this.state.world.waterRoughness * 0.012;
-    this.waveStrength.value += (targetWave - this.waveStrength.value) * Math.min(1, dt * 1.8);
+    if (this.state.world.waterRoughness !== this.appliedWaterRoughness) {
+      this.waterProfile = getWaterSurfaceProfile(this.state.world.waterRoughness);
+      this.appliedWaterRoughness = this.waterProfile.roughness;
+      this.waterRoughness.value = this.waterProfile.roughness;
+      this.reflectionMip.value = this.waterProfile.reflectionMip;
+      this.reflectionClarity.value = this.waterProfile.reflectionClarity;
+      this.publishWaterSurfaceMetrics();
+    }
+    this.waveStrength.value += (this.waterProfile.waveStrength - this.waveStrength.value) * Math.min(1, dt * 1.8);
     this.stars.rotation.y += dt * 0.002;
     this.groups.cosmic.rotation.y += dt * 0.014;
 
@@ -388,6 +404,25 @@ export class WorldScene extends EventTarget {
         entry.nextShadowUpdate = this.clock + 0.14;
       }
     }
+  }
+
+  getWaterSurfaceMetrics() {
+    return {
+      roughness: this.waterRoughness.value,
+      reflectionMip: this.reflectionMip.value,
+      reflectionClarity: this.reflectionClarity.value,
+      waveStrength: this.waveStrength.value,
+      mipmappedReflection: this.reflectionNode.reflector.generateMipmaps === true,
+    };
+  }
+
+  publishWaterSurfaceMetrics() {
+    const { dataset } = this.renderer.domElement;
+    dataset.waterRoughness = String(this.waterRoughness.value);
+    dataset.waterReflectionMip = this.reflectionMip.value.toFixed(3);
+    dataset.waterReflectionClarity = this.reflectionClarity.value.toFixed(3);
+    dataset.waterWaveStrengthTarget = this.waterProfile.waveStrength.toFixed(5);
+    dataset.waterMipmappedReflection = String(this.reflectionNode?.reflector.generateMipmaps === true);
   }
 
   preparePipelineWarmup() {
