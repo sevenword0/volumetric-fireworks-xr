@@ -29,6 +29,30 @@ test('particle bokeh coverage expands beyond a guarded sprite seed in screen spa
   assert.match(engineSource, /material\.scaleNode = instancedBufferAttribute\(this\.scaleAttribute\)\.mul\(this\.particleBokehGeometryExpansionNode\);/);
 });
 
+test('a water-sized colorless hemisphere supplies focus depth across the sky', async () => {
+  const mainSource = await readFile(new URL('../src/main.js', import.meta.url), 'utf8');
+  const worldSource = await readFile(new URL('../src/scene/world.js', import.meta.url), 'utf8');
+  const hemispherePass = mainSource.indexOf('new THREE.RenderTarget(1, 1');
+  const hemisphereTarget = mainSource.indexOf('texture(focusHemisphereRenderTarget.texture)', hemispherePass);
+  const particleTarget = mainSource.indexOf('scenePass.getTextureNode(PARTICLE_FOCUS_TARGET)', hemisphereTarget);
+  const bokehCall = mainSource.indexOf('bokehDepthOfField(motionColor, scenePass.getViewZNode(), focusHemisphereTexture, particleFocusTexture', particleTarget);
+  assert.ok(hemispherePass >= 0, 'missing isolated focus hemisphere render target');
+  assert.ok(hemisphereTarget > hemispherePass, 'missing focus hemisphere texture');
+  assert.ok(particleTarget > hemisphereTarget, 'particle and hemisphere depths must remain independent');
+  assert.ok(bokehCall > particleTarget, 'depth-of-field must consume both focus targets');
+  assert.match(mainSource, /format: THREE\.RGFormat/);
+  assert.match(mainSource, /sceneVelocityTexture\.value\.format = THREE\.RGFormat/);
+  assert.match(mainSource, /renderer\.render\(world\.focusScene, camera\)/);
+  assert.match(mainSource, /renderer\.setViewport\(savedFocusViewport\)/);
+  assert.match(worldSource, /new THREE\.SphereGeometry\([\s\S]*Math\.PI \/ 2/);
+  assert.match(worldSource, /this\.focusScene = new THREE\.Scene\(\)/);
+  assert.match(worldSource, /material\.outputNode = vec4\(positionView\.z\.negate\(\), 1, 0, 1\)/);
+  assert.match(worldSource, /material\.blending = THREE\.AdditiveBlending/);
+  assert.match(worldSource, /this\.focusScene\.add\(hemisphere\)/);
+  assert.doesNotMatch(mainSource, /scenePass\.getTextureNode\(FOCUS_HEMISPHERE_TARGET\)/);
+  assert.match(worldSource, /material\.depthWrite = false/);
+});
+
 test('afterimage history accumulates only the particle emission MRT before motion blur', async () => {
   const mainSource = await readFile(new URL('../src/main.js', import.meta.url), 'utf8');
   const engineSource = await readFile(new URL('../src/pyro/firework-engine.js', import.meta.url), 'utf8');

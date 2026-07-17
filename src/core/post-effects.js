@@ -45,14 +45,22 @@ const particleBokehFocusCoverage = Fn(([particleFocusTextureNode, focusDistanceN
   return vec4(distance.mul(coverage), 0, 0, coverage);
 });
 
-const depthBokeh = Fn(([textureNode, viewZNode, particleFocusTextureNode, focusDistanceNode, focusRangeNode, bokehScaleNode, bokehSamplesNode, bokehGammaNode]) => {
+const depthBokeh = Fn(([textureNode, viewZNode, focusHemisphereTextureNode, particleFocusTextureNode, focusDistanceNode, focusRangeNode, bokehScaleNode, bokehSamplesNode, bokehGammaNode]) => {
   const baseUV = uv();
   const source = textureNode.sample(baseUV).toVar();
+  const packedFocusHemisphere = focusHemisphereTextureNode.sample(baseUV);
+  const focusHemisphereCoverage = packedFocusHemisphere.g.max(0);
+  const focusHemisphereDistance = packedFocusHemisphere.r.div(focusHemisphereCoverage.max(0.001));
+  const sceneDistance = viewZNode.negate().max(0);
+  const sceneDepthValidity = smoothstep(0.001, 0.01, sceneDistance);
+  const nearestProxyDistance = sceneDistance.min(focusHemisphereDistance);
+  const proxyDistance = mix(focusHemisphereDistance, nearestProxyDistance, sceneDepthValidity);
+  const resolvedSceneDistance = mix(sceneDistance, proxyDistance, focusHemisphereCoverage.clamp(0, 1));
   const packedParticleFocus = particleFocusTextureNode.sample(baseUV);
   const particleCoverage = packedParticleFocus.a;
   const particleDistance = packedParticleFocus.r.div(particleCoverage.max(0.001));
   const particleMask = smoothstep(PARTICLE_FOCUS_MIN_COVERAGE, PARTICLE_FOCUS_FULL_COVERAGE, particleCoverage);
-  const resolvedDistance = mix(viewZNode.negate(), particleDistance, particleMask);
+  const resolvedDistance = mix(resolvedSceneDistance, particleDistance, particleMask);
   const focusError = resolvedDistance.sub(focusDistanceNode).abs();
   const safeFocusRange = focusRangeNode.max(0.001);
   const circleOfConfusion = smoothstep(safeFocusRange.mul(0.08), safeFocusRange, focusError);
@@ -79,7 +87,7 @@ const depthBokeh = Fn(([textureNode, viewZNode, particleFocusTextureNode, focusD
   return vec4(mix(source.rgb, gammaAdjustedBokeh, blend), source.a);
 });
 
-export function bokehDepthOfField(inputNode, viewZNode, particleFocusTextureNode, focusDistanceNode, focusRangeNode, bokehScaleNode, bokehSamplesNode, bokehGammaNode) {
+export function bokehDepthOfField(inputNode, viewZNode, focusHemisphereTextureNode, particleFocusTextureNode, focusDistanceNode, focusRangeNode, bokehScaleNode, bokehSamplesNode, bokehGammaNode) {
   const expandedParticleFocusTexture = convertToTexture(particleBokehFocusCoverage(
     particleFocusTextureNode,
     focusDistanceNode,
@@ -87,5 +95,5 @@ export function bokehDepthOfField(inputNode, viewZNode, particleFocusTextureNode
     bokehScaleNode,
     bokehSamplesNode,
   ));
-  return depthBokeh(convertToTexture(inputNode), viewZNode, expandedParticleFocusTexture, focusDistanceNode, focusRangeNode, bokehScaleNode, bokehSamplesNode, bokehGammaNode);
+  return depthBokeh(convertToTexture(inputNode), viewZNode, focusHemisphereTextureNode, expandedParticleFocusTexture, focusDistanceNode, focusRangeNode, bokehScaleNode, bokehSamplesNode, bokehGammaNode);
 }
