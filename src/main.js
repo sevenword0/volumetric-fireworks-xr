@@ -212,6 +212,7 @@ async function initialize() {
           configured: { ...state.launch },
           lastManual: lastManualLaunchPlacement ? { ...lastManualLaunchPlacement } : null,
         },
+        waterSurface: world.getWaterSurfaceMetrics(),
         effects: {
           bloom: state.quality.bloom,
           fireworkBrightness: state.quality.fireworkBrightness,
