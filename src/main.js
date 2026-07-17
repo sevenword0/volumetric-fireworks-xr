@@ -727,6 +727,7 @@ function createCubeCallbacks() {
     nextShowChoreography: () => ui.nextShowChoreography(),
     getCueCount: () => ui.cues.length,
     generateShow: () => ui.generateShow(),
+    copySettings: () => ui.copySettings(),
     clear: () => { clearSimulation(); ui.toast('입자와 볼륨을 비웠습니다'); },
     nextEnvironment: () => {
       const next = environments[(environments.indexOf(state.world.environment) + 1) % environments.length];

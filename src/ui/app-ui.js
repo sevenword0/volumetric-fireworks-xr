@@ -9,6 +9,7 @@ import {
 } from '../pyro/presets.js';
 import { generateBurstDirections } from '../pyro/patterns.js';
 import { resolveRingParticleProfile } from '../core/ring-particles.js';
+import { copyTextToClipboard } from '../core/clipboard.js';
 import {
   SHOW_CHOREOGRAPHY_PRESETS,
   SHOW_DIRECTION_OPTIONS,
@@ -168,6 +169,7 @@ export class AppUI extends EventTarget {
     this.performanceGuardState = null;
     this.optimizationMessageTimer = null;
     this.optimizationMessageUntil = 0;
+    this.settingsCopyTimer = null;
     this.elements = {};
     this.cacheElements();
     this.populateSelects();
@@ -192,7 +194,7 @@ export class AppUI extends EventTarget {
   cacheElements() {
     const ids = [
       'renderer-badge', 'optimization-status', 'fps-readout', 'particle-readout', 'volume-readout', 'xr-button', 'help-button',
-      'ui-visibility-button', 'fullscreen-button',
+      'ui-visibility-button', 'settings-copy-button', 'fullscreen-button',
       'preset-grid', 'preset-search', 'preset-category', 'selected-preset-name', 'selected-preset-meta', 'selected-swatch',
       'launch-button', 'launch-layout', 'interaction-hint', 'toast-stack', 'welcome-dialog', 'help-dialog', 'start-experience',
       'design-pattern', 'design-star', 'design-pistil', 'design-palette', 'design-count', 'design-size', 'design-trail', 'design-life',
@@ -757,9 +759,50 @@ export class AppUI extends EventTarget {
 
   bindDisplayControls() {
     this.elements.uivisibilitybutton.addEventListener('click', () => this.toggleUIVisibility());
+    this.elements.settingscopybutton.addEventListener('click', () => { void this.copySettings(); });
     this.elements.fullscreenbutton.addEventListener('click', () => { void this.toggleFullscreen(); });
     document.addEventListener('fullscreenchange', () => this.syncFullscreenButton());
     this.syncFullscreenButton();
+  }
+
+  resetSettingsCopyButton() {
+    const button = this.elements.settingscopybutton;
+    button.dataset.copyState = 'idle';
+    button.querySelector('span').textContent = '⧉';
+    button.setAttribute('aria-label', '설정값 클립보드에 복사');
+    button.title = '현재 설정값 JSON 복사';
+  }
+
+  async copySettings() {
+    const button = this.elements.settingscopybutton;
+    const settings = this.store.export();
+    clearTimeout(this.settingsCopyTimer);
+    button.disabled = true;
+    button.dataset.copyState = 'copying';
+    button.setAttribute('aria-label', '설정값 복사 중');
+    try {
+      const method = await copyTextToClipboard(settings);
+      button.dataset.copyState = 'copied';
+      button.dataset.copyMethod = method;
+      button.dataset.copyBytes = String(new TextEncoder().encode(settings).length);
+      button.querySelector('span').textContent = '✓';
+      button.setAttribute('aria-label', '설정값 복사 완료');
+      button.title = '설정값 복사 완료';
+      this.toast('현재 설정값을 JSON으로 복사했습니다');
+      this.dispatchEvent(new CustomEvent('settingscopied', { detail: { method, settings } }));
+      this.settingsCopyTimer = setTimeout(() => this.resetSettingsCopyButton(), 1800);
+      return settings;
+    } catch {
+      button.dataset.copyState = 'error';
+      button.querySelector('span').textContent = '!';
+      button.setAttribute('aria-label', '설정값 복사 실패');
+      button.title = '클립보드 권한을 확인해 주세요';
+      this.toast('설정값을 클립보드에 복사하지 못했습니다', 'error');
+      this.settingsCopyTimer = setTimeout(() => this.resetSettingsCopyButton(), 2200);
+      return null;
+    } finally {
+      button.disabled = false;
+    }
   }
 
   toggleUIVisibility(force = !document.body.classList.contains('ui-hidden')) {

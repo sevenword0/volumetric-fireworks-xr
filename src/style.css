@@ -323,6 +323,23 @@ label[for]:focus-within {
   background: rgba(94, 233, 255, 0.12);
 }
 
+.settings-copy-button[data-copy-state="copying"] {
+  color: var(--cyan-soft);
+  border-color: rgba(94, 233, 255, 0.34);
+}
+
+.settings-copy-button[data-copy-state="copied"] {
+  color: #70ffb9;
+  border-color: rgba(112, 255, 185, 0.42);
+  background: rgba(112, 255, 185, 0.1);
+}
+
+.settings-copy-button[data-copy-state="error"] {
+  color: #ffb0c0;
+  border-color: rgba(255, 101, 132, 0.5);
+  background: rgba(255, 101, 132, 0.1);
+}
+
 .xr-button {
   height: 36px;
   display: flex;
@@ -1765,6 +1782,11 @@ body.ui-hidden .ui-visibility-button {
 }
 
 @media (max-width: 430px) {
+  .topbar { grid-template-columns: minmax(70px, 1fr) minmax(76px, auto) auto; gap: 4px; }
+  .telemetry .optimization-status { min-width: 76px; }
+  .top-actions { gap: 3px; }
+  .top-actions .icon-button,
+  .xr-button { width: 31px; padding: 0; justify-content: center; }
   .brand-mark { display: none; }
   .brand { gap: 0; }
   .preset-grid { grid-template-columns: 1fr 1fr; }
