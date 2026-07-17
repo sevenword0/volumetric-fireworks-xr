@@ -103,7 +103,11 @@
             <div><b id="audio-name">—</b><small id="audio-meta">분석 대기</small></div>
             <button class="icon-button" id="audio-remove" type="button" aria-label="음악 제거">×</button>
           </div>
-          <canvas id="audio-timeline" width="520" height="96" aria-label="오디오 에너지 및 큐 타임라인"></canvas>
+          <canvas id="audio-timeline" width="520" height="96" aria-label="오디오 에너지 및 큐 타임라인, 클릭하여 탐색"></canvas>
+          <label class="show-timeline-seek" for="show-timeline-seek">
+            <span><b>타임라인 탐색</b><output id="show-timeline-time">0:00 / 0:00</output></span>
+            <input id="show-timeline-seek" type="range" min="0" max="0" value="0" step="0.05" aria-label="음악 쇼 재생 위치" disabled />
+          </label>
           <div class="music-metrics">
             <span><small>BPM</small><b id="music-bpm">—</b></span>
             <span><small>CUES</small><b id="music-cues">0</b></span>
@@ -131,6 +135,7 @@
           <div class="button-row show-button-row">
             <button class="secondary-button" id="preview-show" type="button">연출 미리보기</button>
             <button class="secondary-button" id="generate-show" type="button" disabled>자동 쇼 생성</button>
+            <button class="secondary-button" id="restart-show" type="button" disabled>↺ 처음부터</button>
             <button class="primary-button" id="play-show" type="button" disabled>▶ 쇼 재생</button>
           </div>
         </section>
@@ -148,6 +153,7 @@
             <label><span>공기 저항 (전역) <output id="drag-out">1.00×</output></span><input id="drag" type="range" min="0" max="50" value="1" step="0.1" /></label>
             <label><span>폭발 후 파티클 수명 <output id="particle-lifetime-out">1.00×</output></span><input id="particle-lifetime" type="range" min="0.25" max="5" value="1" step="0.05" /></label>
             <label title="링·이중 링·새턴의 고리 부분과 중심 링에만 적용"><span>고리 파티클량 <output id="ring-particle-scale-out">100%</output></span><input id="ring-particle-scale" type="range" min="25" max="300" value="100" step="5" /></label>
+            <label title="수동·배치·음악 쇼 모든 포탄의 최초 상승 속도에 적용"><span>최초 발사 강도 (전역) <output id="initial-launch-power-out">100%</output></span><input id="initial-launch-power" type="range" min="50" max="200" value="100" step="5" /></label>
             <label><span>발사 중심 X <output id="launch-center-x-out">0m</output></span><input id="launch-center-x" type="range" min="-40" max="40" value="0" step="1" /></label>
             <label><span>발사 위치 범위 <output id="launch-position-range-out">100%</output></span><input id="launch-position-range" type="range" min="10" max="250" value="100" step="5" /></label>
             <label><span>바람 X <output id="wind-x-out">1.6</output></span><input id="wind-x" type="range" min="-8" max="8" value="1.6" step="0.1" /></label>

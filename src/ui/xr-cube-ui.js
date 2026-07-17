@@ -8,11 +8,13 @@ import {
   MAX_CAMERA_FOV,
   MAX_LAUNCH_CENTER_X,
   MAX_LAUNCH_POSITION_RANGE,
+  MAX_INITIAL_LAUNCH_POWER,
   MAX_POST_BURST_LIFETIME,
   MIN_BOKEH_SAMPLES,
   MIN_CAMERA_FOV,
   MIN_LAUNCH_CENTER_X,
   MIN_LAUNCH_POSITION_RANGE,
+  MIN_INITIAL_LAUNCH_POWER,
   MIN_POST_BURST_LIFETIME,
 } from '../core/state.js';
 
@@ -70,6 +72,7 @@ export class XRCubeUI extends EventTarget {
           { label: '다음 프리셋', value: () => '▶', action: () => this.callbacks.nextPreset?.() },
           { label: '발사 중심', value: () => `${Math.round(this.state.launch.centerX)}m`, action: () => this.adjust('launch.centerX', 4, MIN_LAUNCH_CENTER_X, MAX_LAUNCH_CENTER_X) },
           { label: '위치 범위', value: () => `${Math.round(this.state.launch.positionRange * 100)}%`, action: () => this.adjust('launch.positionRange', 0.25, MIN_LAUNCH_POSITION_RANGE, MAX_LAUNCH_POSITION_RANGE) },
+          { label: '최초 발사', value: () => `${Math.round(this.state.launch.initialPower * 100)}%`, action: () => this.adjust('launch.initialPower', 0.25, MIN_INITIAL_LAUNCH_POWER, MAX_INITIAL_LAUNCH_POWER) },
           { label: '고리 입자', value: () => `${Math.round(this.state.physics.ringParticleScale * 100)}%`, action: () => this.adjust('physics.ringParticleScale', 0.25, MIN_RING_PARTICLE_SCALE, MAX_RING_PARTICLE_SCALE) },
           { label: '발사', value: () => 'LAUNCH', action: () => this.callbacks.launch?.() },
         ],
@@ -79,6 +82,9 @@ export class XRCubeUI extends EventTarget {
         accent: '#a58bff',
         rows: [
           { label: '음악 쇼', value: () => this.callbacks.isShowPlaying?.() ? 'PAUSE' : 'PLAY', action: () => this.callbacks.toggleShow?.() },
+          { label: '처음부터', value: () => 'RESTART', action: () => this.callbacks.restartShow?.() },
+          { label: '10초 뒤로', value: () => '−10s', action: () => this.callbacks.seekShowBy?.(-10) },
+          { label: '10초 앞으로', value: () => '+10s', action: () => this.callbacks.seekShowBy?.(10) },
           { label: '연출 프리셋', value: () => this.callbacks.getShowChoreographyName?.() ?? 'BALANCED', action: () => this.callbacks.nextShowChoreography?.() },
           { label: '큐 수', value: () => `${this.callbacks.getCueCount?.() ?? 0}`, action: () => this.callbacks.generateShow?.() },
           { label: '전체 지우기', value: () => 'CLEAR', action: () => this.callbacks.clear?.() },

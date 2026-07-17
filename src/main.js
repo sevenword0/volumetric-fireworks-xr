@@ -5,13 +5,13 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { bloom } from 'three/addons/tsl/display/BloomNode.js';
 import { motionBlur } from 'three/addons/tsl/display/MotionBlur.js';
 import WebGPU from 'three/addons/capabilities/WebGPU.js';
-import { AudioShowController, getPresetForCue } from './audio/audio-show.js';
+import { AudioShowController, findCueIndexAtTime, getPresetForCue } from './audio/audio-show.js';
 import { FireworkSoundEngine } from './audio/firework-sound.js';
 import { PARTICLE_FOCUS_TARGET } from './core/focus-depth.js';
 import { ParticleLoadGuard, applyLoadOptimizationTargets, particleLoadLevel } from './core/particle-load-guard.js';
 import { ParticleLoadPlanner } from './core/particle-load-planner.js';
 import { bokehDepthOfField } from './core/post-effects.js';
-import { BASE_AIR_DRAG, MAX_CAMERA_FOV, MIN_CAMERA_FOV, createAppState } from './core/state.js';
+import { BASE_AIR_DRAG, MAX_CAMERA_FOV, MIN_CAMERA_FOV, createAppState, resolveInitialLaunchPower } from './core/state.js';
 import { FIREWORK_PRESETS } from './pyro/presets.js';
 import { FireworkEngine } from './pyro/firework-engine.js';
 import { WorldScene } from './scene/world.js';
@@ -144,6 +144,7 @@ async function initialize() {
     engine.setLoadBudget(loadGuardState);
     engine.setGlobalBrightness(state.quality.fireworkBrightness);
     canvas.dataset.ringParticleScale = String(state.physics.ringParticleScale);
+    canvas.dataset.initialLaunchPower = String(state.launch.initialPower);
     ui.setPerformanceGuard(loadGuardState);
     engine.connectFluid(fluid);
     engine.setColliders(world.colliders);
@@ -482,6 +483,7 @@ function setupUIEvents() {
       particleLoadPlanner.clearManualPlan();
       refreshShowLoadPlan();
     }
+    if (event.detail.path === 'launch.initialPower') canvas.dataset.initialLaunchPower = String(event.detail.value);
     if (event.detail.path === 'show.musicVolume') audio.setVolume(event.detail.value);
   });
   ui.addEventListener('soundtoggle', (event) => {
@@ -501,10 +503,19 @@ function setupUIEvents() {
   ui.addEventListener('showplay', (event) => {
     void armFireworkSound();
     showCues = event.detail.cues;
-    const current = audio.currentTime;
-    nextCueIndex = Math.max(0, showCues.findIndex((cue) => cue.time >= current - 0.04));
-    if (nextCueIndex < 0) nextCueIndex = showCues.length;
-    lastShowTime = current;
+    syncShowPlaybackPosition(event.detail.time ?? audio.currentTime);
+  });
+  ui.addEventListener('showseek', (event) => {
+    showCues = event.detail.cues;
+    clearSimulation();
+    syncShowPlaybackPosition(event.detail.time);
+    if (event.detail.playing) void armFireworkSound();
+  });
+  ui.addEventListener('showrestart', (event) => {
+    void armFireworkSound();
+    showCues = event.detail.cues;
+    clearSimulation();
+    syncShowPlaybackPosition(0);
   });
   ui.addEventListener('showstop', () => {
     nextCueIndex = 0;
@@ -635,6 +646,8 @@ function setupKeyboard() {
       audio.stop();
       ui.elements.playshow.textContent = '▶ 쇼 재생';
       nextCueIndex = 0;
+      lastShowTime = 0;
+      ui.updatePlayhead(0, true, true);
     }
   });
 }
@@ -702,13 +715,10 @@ function createCubeCallbacks() {
     launch: () => launchPreset(ui.selectedPreset, state.launchLayout),
     isShowPlaying: () => audio.playing,
     toggleShow: async () => {
-      if (!audio.buffer || !ui.cues.length) {
-        ui.toast('먼저 음악 쇼를 생성해 주세요', 'error');
-        return;
-      }
-      const playing = await audio.play();
-      ui.elements.playshow.textContent = playing ? 'Ⅱ 일시정지' : '▶ 쇼 재생';
+      await ui.toggleShowPlayback();
     },
+    restartShow: () => ui.playShowFromStart(),
+    seekShowBy: (seconds) => ui.seekShowBy(seconds),
     nextLayout: () => ui.nextLayout(),
     getShowChoreographyName: () => {
       const select = ui.elements.showchoreography;
@@ -762,6 +772,7 @@ function createCubeCallbacks() {
 
 const RANGE_BINDINGS_FOR_CUBE = Object.freeze({
   'camera.fov': 'camera-fov',
+  'launch.initialPower': { id: 'initial-launch-power', scale: 0.01 },
   'launch.centerX': 'launch-center-x',
   'launch.positionRange': { id: 'launch-position-range', scale: 0.01 },
   'physics.gravity': 'gravity',
@@ -782,8 +793,12 @@ function clearSimulation() {
 }
 
 function scheduleSingle(preset, options = {}) {
-  if (state.quality.predictiveLoad) particleLoadPlanner.scheduleLaunch(preset, 'single', engine.time, { ...options, lifetimeScale: state.physics.particleLifetime, ringParticleScale: state.physics.ringParticleScale });
-  engine.schedule(preset, options);
+  const launchOptions = {
+    ...options,
+    launchPower: resolveInitialLaunchPower(options.launchPower ?? 1, state.launch.initialPower),
+  };
+  if (state.quality.predictiveLoad) particleLoadPlanner.scheduleLaunch(preset, 'single', engine.time, { ...launchOptions, lifetimeScale: state.physics.particleLifetime, ringParticleScale: state.physics.ringParticleScale });
+  engine.schedule(preset, launchOptions);
 }
 
 function refreshShowLoadPlan() {
@@ -805,6 +820,7 @@ function launchPreset(preset, layout = 'single', options = {}) {
     ...options,
     x: options.x ?? state.launch.centerX,
     spread: options.spread ?? state.launch.positionRange,
+    launchPower: resolveInitialLaunchPower(options.launchPower ?? 1, state.launch.initialPower),
   };
   if (state.quality.predictiveLoad) particleLoadPlanner.scheduleLaunch(preset, layout, engine.time, { ...launchOptions, lifetimeScale: state.physics.particleLifetime, ringParticleScale: state.physics.ringParticleScale });
   const count = engine.launchLayout(preset, layout, launchOptions);
@@ -812,11 +828,13 @@ function launchPreset(preset, layout = 'single', options = {}) {
     layout,
     centerX: launchOptions.x,
     positionRange: launchOptions.spread,
+    effectiveLaunchPower: launchOptions.launchPower,
     count,
   };
   canvas.dataset.launchCenterX = String(launchOptions.x);
   canvas.dataset.launchPositionRange = String(launchOptions.spread);
-  ui.toast(`${preset.name} · ${layout.toUpperCase()} ${count}발 · X ${Math.round(launchOptions.x)}m / ${Math.round(launchOptions.spread * 100)}%`);
+  canvas.dataset.effectiveLaunchPower = String(launchOptions.launchPower);
+  ui.toast(`${preset.name} · ${layout.toUpperCase()} ${count}발 · 최초 ${Math.round(launchOptions.launchPower * 100)}% · X ${Math.round(launchOptions.x)}m / ${Math.round(launchOptions.spread * 100)}%`);
 }
 
 function showCueLaunchOptions(cue) {
@@ -827,7 +845,7 @@ function showCueLaunchOptions(cue) {
     x: choreography.launchX ?? 0,
     z: choreography.launchZ ?? 0,
     yaw: choreography.launchYaw ?? 0,
-    launchPower: choreography.launchPower ?? 1,
+    launchPower: resolveInitialLaunchPower(choreography.launchPower ?? 1, state.launch.initialPower),
     explosionPower: choreography.explosionPower ?? 1,
     sequenceDelay: choreography.sequenceDelay ?? 0,
     crossLaunch: choreography.crossLaunch === true,
@@ -872,12 +890,21 @@ function launchShowCue(cue, manualPreview = false) {
   return count;
 }
 
+function syncShowPlaybackPosition(time = audio.currentTime) {
+  const current = clamp(Number(time) || 0, 0, audio.buffer?.duration ?? 0);
+  nextCueIndex = findCueIndexAtTime(showCues, current, 0.04);
+  lastShowTime = current;
+  ui.updatePlayhead(current, true);
+  canvas.dataset.showTime = current.toFixed(3);
+  canvas.dataset.nextShowCueIndex = String(nextCueIndex);
+  return nextCueIndex;
+}
+
 function updateShow() {
   if (!audio.playing || !showCues.length) return;
   const current = audio.currentTime;
   if (current + 0.05 < lastShowTime) {
-    nextCueIndex = Math.max(0, showCues.findIndex((cue) => cue.time >= current));
-    if (nextCueIndex < 0) nextCueIndex = showCues.length;
+    nextCueIndex = findCueIndexAtTime(showCues, current, 0);
   }
   while (nextCueIndex < showCues.length && showCues[nextCueIndex].time <= current + 0.025) {
     const cue = showCues[nextCueIndex];

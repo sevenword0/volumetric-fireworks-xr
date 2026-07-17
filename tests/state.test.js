@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_STATE, createAppState, sanitizeState } from '../src/core/state.js';
+import { DEFAULT_STATE, createAppState, resolveInitialLaunchPower, sanitizeState } from '../src/core/state.js';
 
 function memoryStorage(initial = null) {
   let value = initial;
@@ -18,7 +18,7 @@ test('empty input produces complete defaults', () => {
 test('numeric state is clamped to safe simulation ranges', () => {
   const state = sanitizeState({
     camera: { fov: 999 },
-    launch: { centerX: 999, positionRange: 99 },
+    launch: { centerX: 999, positionRange: 99, initialPower: 99 },
     physics: { gravity: 20, drag: 99, particleLifetime: 99, ringParticleScale: 99, windX: 99, windZ: -99, vortex: Infinity },
     volume: { smoke: 8, buoyancy: -1, scattering: 9, shadow: 10 },
     world: { waterRoughness: 8, reflection: -2 },
@@ -40,8 +40,8 @@ test('numeric state is clamped to safe simulation ranges', () => {
   });
   assert.deepEqual(state.camera, { fov: 110 });
   assert.deepEqual(sanitizeState({ camera: { fov: -10 } }).camera, { fov: 20 });
-  assert.deepEqual(state.launch, { centerX: 40, positionRange: 2.5 });
-  assert.deepEqual(sanitizeState({ launch: { centerX: -999, positionRange: -4 } }).launch, { centerX: -40, positionRange: 0.1 });
+  assert.deepEqual(state.launch, { centerX: 40, positionRange: 2.5, initialPower: 2 });
+  assert.deepEqual(sanitizeState({ launch: { centerX: -999, positionRange: -4, initialPower: -4 } }).launch, { centerX: -40, positionRange: 0.1, initialPower: 0.5 });
   assert.deepEqual(state.physics, { gravity: 2, drag: 4.25, particleLifetime: 5, ringParticleScale: 3, windX: 8, windZ: -8, vortex: 0.42 });
   assert.deepEqual(sanitizeState({ physics: { drag: -4, particleLifetime: -4, ringParticleScale: -4 } }).physics, {
     gravity: 1, drag: 0, particleLifetime: 0.25, ringParticleScale: 0.25, windX: 1.6, windZ: 0.3, vortex: 0.42,
@@ -79,11 +79,18 @@ test('numeric state is clamped to safe simulation ranges', () => {
   });
 });
 
-test('manual launch center and position range persist', () => {
-  assert.deepEqual(sanitizeState({ launch: { centerX: -18.5, positionRange: 2.25 } }).launch, {
+test('manual launch center, range, and global initial power persist', () => {
+  assert.deepEqual(sanitizeState({ launch: { centerX: -18.5, positionRange: 2.25, initialPower: 1.65 } }).launch, {
     centerX: -18.5,
     positionRange: 2.25,
+    initialPower: 1.65,
   });
+});
+
+test('global initial power composes with preset power and clamps the effective value', () => {
+  assert.ok(Math.abs(resolveInitialLaunchPower(1.2, 1.5) - 1.8) < 1e-9);
+  assert.equal(resolveInitialLaunchPower(3, 2), 2.4);
+  assert.equal(resolveInitialLaunchPower(0.1, 0.5), 0.25);
 });
 
 test('camera field of view persists', () => {

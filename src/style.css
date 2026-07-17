@@ -919,11 +919,45 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .show-button-row {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .show-button-row button {
   padding-inline: 5px;
+}
+
+#audio-timeline {
+  cursor: pointer;
+}
+
+.show-timeline-seek {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin: 8px 0 10px;
+  padding: 8px 10px;
+  border: 1px solid rgba(128, 153, 190, 0.18);
+  border-radius: 9px;
+  background: rgba(3, 8, 16, 0.38);
+}
+
+.show-timeline-seek > span {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 8px;
+}
+
+.show-timeline-seek output {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.show-timeline-seek input {
+  width: 100%;
+  margin: 0;
 }
 
 .primary-button,
