@@ -4,7 +4,7 @@ import path from 'node:path';
 const root = process.cwd();
 const required = [
   'index.html', 'package.json', 'vite.config.js', 'public/.nojekyll',
-  'src/main.js', 'src/style.css', 'src/core/bokeh-response.js', 'src/core/focus-depth.js', 'src/core/ring-particles.js', 'src/core/water-surface.js', 'src/core/particle-load-guard.js', 'src/core/particle-load-planner.js', 'src/pyro/presets.js', 'src/pyro/patterns.js',
+  'src/main.js', 'src/style.css', 'src/core/bokeh-response.js', 'src/core/clipboard.js', 'src/core/focus-depth.js', 'src/core/ring-particles.js', 'src/core/water-surface.js', 'src/core/particle-load-guard.js', 'src/core/particle-load-planner.js', 'src/pyro/presets.js', 'src/pyro/patterns.js',
   'src/pyro/firework-engine.js', 'src/volume/fluid-volume.js', 'src/audio/audio-show.js', 'src/audio/show-choreography.js', 'src/audio/firework-sound.js',
   'src/ui/app-ui.js', 'src/ui/xr-cube-ui.js', 'src/scene/world.js',
   '.github/workflows/pages.yml',
@@ -40,7 +40,7 @@ for (const file of files) {
 }
 
 const html = await readFile(path.join(root, 'index.html'), 'utf8');
-for (const marker of ['id="stage"', 'id="welcome-dialog"', 'id="audio-input"', 'id="audio-timeline"', 'id="show-timeline-seek"', 'id="restart-show"', 'id="xr-button"', 'id="launch-button"', 'id="camera-view"', 'id="camera-fov"', 'id="drag"', 'id="particle-lifetime"', 'id="ring-particle-scale"', 'id="initial-launch-power"', 'id="launch-center-x"', 'id="launch-position-range"', 'id="firework-brightness"', 'id="dof-toggle"', 'id="bokeh-gamma"', 'id="bokeh-samples"', 'id="music-volume"', 'id="show-choreography"', 'id="show-direction"', 'id="preview-show"', 'id="show-launch-power"', 'id="show-explosion-power"', 'id="show-sequence"', 'id="show-crossfire"', 'id="show-color-variation"', 'id="predictive-load-toggle"', 'id="optimization-status"', 'id="optimize-particles"', 'id="optimize-resolution"', 'id="optimize-volume"', 'id="optimize-lighting"', 'id="optimize-post"', 'id="ui-visibility-button"', 'id="fullscreen-button"']) {
+for (const marker of ['id="stage"', 'id="welcome-dialog"', 'id="audio-input"', 'id="audio-timeline"', 'id="show-timeline-seek"', 'id="restart-show"', 'id="xr-button"', 'id="launch-button"', 'id="camera-view"', 'id="camera-fov"', 'id="drag"', 'id="particle-lifetime"', 'id="ring-particle-scale"', 'id="initial-launch-power"', 'id="launch-center-x"', 'id="launch-position-range"', 'id="firework-brightness"', 'id="dof-toggle"', 'id="bokeh-gamma"', 'id="bokeh-samples"', 'id="music-volume"', 'id="show-choreography"', 'id="show-direction"', 'id="preview-show"', 'id="show-launch-power"', 'id="show-explosion-power"', 'id="show-sequence"', 'id="show-crossfire"', 'id="show-color-variation"', 'id="predictive-load-toggle"', 'id="optimization-status"', 'id="optimize-particles"', 'id="optimize-resolution"', 'id="optimize-volume"', 'id="optimize-lighting"', 'id="optimize-post"', 'id="ui-visibility-button"', 'id="settings-copy-button"', 'id="fullscreen-button"']) {
   if (!html.includes(marker)) throw new Error(`index.html missing ${marker}`);
 }
 
