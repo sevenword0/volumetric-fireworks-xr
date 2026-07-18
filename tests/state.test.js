@@ -34,7 +34,7 @@ const REQUESTED_DEFAULT_STATE = {
     windZ: 0.3,
     vortex: 0,
   },
-  volume: { smoke: 0, buoyancy: 2.05, scattering: 3, shadow: 0 },
+  volume: { smoke: 0, buoyancy: 2.05, scattering: 3, shadow: 0, densityContrast: 1, edgeSoftness: 0.055, fireGlow: 1.2 },
   world: {
     environment: 'lake',
     floor: 'water',
@@ -94,7 +94,7 @@ test('numeric state is clamped to safe simulation ranges', () => {
     camera: { fov: 999 },
     launch: { centerX: 999, positionRange: 99, initialPower: 99 },
     physics: { gravity: 20, drag: 99, particleLifetime: 99, ringParticleScale: 99, trailParticleScale: 99, windX: 99, windZ: -99, vortex: Infinity },
-    volume: { smoke: 8, buoyancy: -1, scattering: 9, shadow: 10 },
+    volume: { smoke: 8, buoyancy: -1, scattering: 9, shadow: 10, densityContrast: 9, edgeSoftness: -1, fireGlow: 10 },
     world: { waterRoughness: 8, reflection: -2 },
     quality: { fireworkBrightness: 9, bloomStrength: 9, bloomRadius: -1, bloomThreshold: 4, saturation: 8, motionBlur: -2, particleAfterimage: 9, focusDistance: -8, focusRange: 999, bokehScale: 9, bokehSamples: 99, bokehGamma: 99 },
     sound: { volume: 6 },
@@ -120,7 +120,10 @@ test('numeric state is clamped to safe simulation ranges', () => {
   assert.deepEqual(sanitizeState({ physics: { drag: -4, particleLifetime: -4, ringParticleScale: -4, trailParticleScale: -4 } }).physics, {
     gravity: 0.1, drag: 0, particleLifetime: 0.25, ringParticleScale: 0.25, trailParticleScale: 0, windX: 0, windZ: 0.3, vortex: 0,
   });
-  assert.deepEqual(state.volume, { smoke: 1.5, buoyancy: 0, scattering: 3, shadow: 4 });
+  assert.deepEqual(state.volume, { smoke: 1.5, buoyancy: 0, scattering: 3, shadow: 4, densityContrast: 3, edgeSoftness: 0.01, fireGlow: 3 });
+  assert.deepEqual(sanitizeState({ volume: { densityContrast: -3, edgeSoftness: 9, fireGlow: -2 } }).volume, {
+    smoke: 0, buoyancy: 2.05, scattering: 3, shadow: 0, densityContrast: 0.5, edgeSoftness: 0.2, fireGlow: 0,
+  });
   assert.equal(state.world.waterRoughness, 1);
   assert.equal(state.world.reflection, 0);
   assert.equal(state.quality.fireworkBrightness, 3);

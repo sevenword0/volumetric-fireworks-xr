@@ -153,6 +153,32 @@ test('the firework engine preserves the fourfold initial launch ceiling', () => 
   engine.dispose();
 });
 
+test('firework engine emits dedicated smoke pulses at launch and burst positions', () => {
+  const engine = createEngine(512);
+  const preset = FIREWORK_PRESETS[0];
+  const smokeCalls = [];
+  engine.connectFluid({
+    emitFireworkSmoke(position, phase, options) {
+      smokeCalls.push({ position: position.clone(), phase, options: { ...options } });
+      return true;
+    },
+  });
+  engine.setLoadBudget({ softLimit: 512, maxSpawnPerFrame: 512, burstScale: 0.1, smokeStride: 3 });
+  engine.launchNow(preset, { x: 4, y: 0.5, z: -3, scale: 1.2, launchPower: 2 });
+  assert.equal(smokeCalls[0].phase, 'launch');
+  assert.deepEqual(smokeCalls[0].position.toArray(), [4, 0.5, -3]);
+  assert.equal(smokeCalls[0].options.power, 2);
+  assert.equal(smokeCalls[0].options.smokeStride, 3);
+
+  const burstPosition = new THREE.Vector3(7, 36, -2);
+  engine.burst(preset, burstPosition, undefined, 1.35);
+  assert.equal(smokeCalls[1].phase, 'burst');
+  assert.deepEqual(smokeCalls[1].position.toArray(), burstPosition.toArray());
+  assert.equal(smokeCalls[1].options.scale, 1.35);
+  assert.equal(smokeCalls[1].options.smokeStride, 3);
+  engine.dispose();
+});
+
 test('manual launch center and position range move and scale layout placements', () => {
   const engine = createEngine(128);
   const count = engine.launchLayout(FIREWORK_PRESETS[0], 'pair', { x: 12, spread: 2 });

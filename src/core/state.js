@@ -26,6 +26,12 @@ export const MIN_CAMERA_FOV = 20;
 export const MAX_CAMERA_FOV = 110;
 export const MIN_BOKEH_SAMPLES = 5;
 export const MAX_BOKEH_SAMPLES = 25;
+export const MIN_SMOKE_CONTRAST = 0.5;
+export const MAX_SMOKE_CONTRAST = 3;
+export const MIN_SMOKE_EDGE_SOFTNESS = 0.01;
+export const MAX_SMOKE_EDGE_SOFTNESS = 0.2;
+export const MIN_SMOKE_FIRE_GLOW = 0;
+export const MAX_SMOKE_FIRE_GLOW = 3;
 
 export const DEFAULT_STATE = Object.freeze({
   selectedPresetId: 'gold-chrysanthemum',
@@ -54,6 +60,9 @@ export const DEFAULT_STATE = Object.freeze({
     buoyancy: 2.05,
     scattering: 3,
     shadow: 0,
+    densityContrast: 1,
+    edgeSoftness: 0.055,
+    fireGlow: 1.2,
   },
   world: {
     environment: 'lake',
@@ -166,6 +175,9 @@ export function sanitizeState(candidate = {}) {
       buoyancy: finite(candidate.volume?.buoyancy, DEFAULT_STATE.volume.buoyancy, 0, 3),
       scattering: finite(candidate.volume?.scattering, DEFAULT_STATE.volume.scattering, 0, 3),
       shadow: finite(candidate.volume?.shadow, DEFAULT_STATE.volume.shadow, 0, 4),
+      densityContrast: finite(candidate.volume?.densityContrast, DEFAULT_STATE.volume.densityContrast, MIN_SMOKE_CONTRAST, MAX_SMOKE_CONTRAST),
+      edgeSoftness: finite(candidate.volume?.edgeSoftness, DEFAULT_STATE.volume.edgeSoftness, MIN_SMOKE_EDGE_SOFTNESS, MAX_SMOKE_EDGE_SOFTNESS),
+      fireGlow: finite(candidate.volume?.fireGlow, DEFAULT_STATE.volume.fireGlow, MIN_SMOKE_FIRE_GLOW, MAX_SMOKE_FIRE_GLOW),
     },
     world: {
       environment: allowed(candidate.world?.environment, ['lake', 'city', 'alpine', 'cosmic', 'custom'], DEFAULT_STATE.world.environment),

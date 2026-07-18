@@ -259,6 +259,18 @@ export class FireworkEngine extends EventTarget {
     this.fluid = fluid;
   }
 
+  emitFireworkSmoke(phase, preset, position, options = {}) {
+    if (typeof this.fluid?.emitFireworkSmoke !== 'function') return false;
+    return this.fluid.emitFireworkSmoke(position, phase, {
+      smoke: finite(preset?.smoke, 0.55),
+      scale: finite(options.scale, 1),
+      power: finite(options.power, 1),
+      brightness: this.globalBrightness,
+      color: options.color ?? null,
+      smokeStride: this.loadBudget.smokeStride,
+    });
+  }
+
   setBlendingMode(mode) {
     const next = ['additive', 'screen', 'alpha'].includes(mode) ? mode : 'additive';
     this.blendingMode = next;
@@ -420,6 +432,7 @@ export class FireworkEngine extends EventTarget {
     };
 
     if (['mine', 'cometFan', 'romanCandle'].includes(preset.pattern)) {
+      this.emitFireworkSmoke('launch', preset, this._spawnPosition.set(x, y, z), { scale, power: launchPower });
       if (preset.pattern === 'romanCandle') {
         const repeat = preset.repeat ?? 7;
         for (let index = 0; index < repeat; index += 1) {
@@ -444,6 +457,7 @@ export class FireworkEngine extends EventTarget {
     }
 
     if (preset.pattern === 'waterfall') {
+      this.emitFireworkSmoke('launch', preset, this._spawnPosition.set(x, y, z), { scale, power: launchPower });
       this.burst(preset, this._spawnPosition.set(x, y + 30 * scale * launchPower, z), ZERO, burstScale, yaw, colorEffects);
       return;
     }
@@ -474,6 +488,7 @@ export class FireworkEngine extends EventTarget {
     shell.colorHue = colorEffects.colorHue;
     shell.colorVariation = colorEffects.colorVariation;
     shell.phase = this.random() * Math.PI * 2;
+    this.emitFireworkSmoke('launch', preset, shell.position, { scale, power: launchPower, color: shell.color });
     this.dispatchEvent(new CustomEvent('launch', { detail: { preset, position: shell.position, launchPower, explosionPower, yaw } }));
   }
 
@@ -560,7 +575,7 @@ export class FireworkEngine extends EventTarget {
 
     const lightColor = writePaletteColor(this._eventColor, palette, 0.25, colorHue);
     this.dispatchEvent(new CustomEvent('burst', { detail: { preset, position, color: lightColor, scale, count, requestedCount, ringRequestedCount: ringProfile.ringCount, ringParticleScale: this.ringParticleScale, trailParticleScale: this.trailParticleScale, brightness: this.globalBrightness, colorHue, colorVariation, lifetimeScale } }));
-    this.fluid?.addEmitter(position, (2.2 * preset.smoke * scale) / this.loadBudget.smokeStride, 1.9 * scale * this.globalBrightness, lightColor, 2.2);
+    this.emitFireworkSmoke('burst', preset, position, { scale, color: lightColor });
     return count;
   }
 
