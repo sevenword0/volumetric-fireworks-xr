@@ -35,6 +35,9 @@ const FORMATTERS = {
   'volume.buoyancy': (value) => value.toFixed(2),
   'volume.scattering': (value) => value.toFixed(2),
   'volume.shadow': (value) => value.toFixed(2),
+  'volume.densityContrast': (value) => value.toFixed(2),
+  'volume.edgeSoftness': (value) => value.toFixed(3),
+  'volume.fireGlow': (value) => value.toFixed(2),
   'world.waterRoughness': (value) => value.toFixed(2),
   'world.reflection': (value) => value.toFixed(2),
   'quality.fireworkBrightness': (value) => `${Math.round(value * 100)}%`,
@@ -80,6 +83,9 @@ const RANGE_BINDINGS = [
   ['buoyancy', 'volume.buoyancy'],
   ['scatter', 'volume.scattering'],
   ['volume-shadow', 'volume.shadow'],
+  ['smoke-contrast', 'volume.densityContrast'],
+  ['smoke-edge-softness', 'volume.edgeSoftness'],
+  ['smoke-fire-glow', 'volume.fireGlow'],
   ['water-roughness', 'world.waterRoughness'],
   ['reflection', 'world.reflection'],
   ['firework-brightness', 'quality.fireworkBrightness'],
@@ -1027,6 +1033,10 @@ export class AppUI extends EventTarget {
       this.elements.volumereadout.dataset.shadowSteps = String(volumePerformance.shadowSteps);
       this.elements.volumereadout.dataset.updateRate = String(volumePerformance.updateRate);
       this.elements.volumereadout.dataset.slicesPerFrame = String(volumePerformance.slicesPerFrame);
+      this.elements.volumereadout.dataset.worldSize = String(volumePerformance.worldSize);
+      this.elements.volumereadout.dataset.extentScale = String(volumePerformance.volumeExtentScale);
+      this.elements.volumereadout.dataset.launchSmokeEmissions = String(volumePerformance.launchSmokeEmissions);
+      this.elements.volumereadout.dataset.burstSmokeEmissions = String(volumePerformance.burstSmokeEmissions);
     }
   }
 

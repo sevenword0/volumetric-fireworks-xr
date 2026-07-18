@@ -939,6 +939,9 @@ const RANGE_BINDINGS_FOR_CUBE = Object.freeze({
   'physics.trailParticleScale': { id: 'trail-particle-scale', scale: 0.01 },
   'physics.windX': 'wind-x',
   'physics.vortex': 'vortex',
+  'volume.densityContrast': 'smoke-contrast',
+  'volume.edgeSoftness': 'smoke-edge-softness',
+  'volume.fireGlow': 'smoke-fire-glow',
   'quality.fireworkBrightness': 'firework-brightness',
   'quality.bokehGamma': 'bokeh-gamma',
   'quality.bokehSamples': 'bokeh-samples',
@@ -1140,6 +1143,7 @@ function animate(now) {
   fpsFrames += 1;
   if (now - fpsWindowStart >= 750) {
     fpsAverage = fpsFrames / Math.max(0.001, fpsAccumulator);
+    const volumeDiagnostics = fluid.performanceDiagnostics;
     ui.updateTelemetry({
       fps: fpsAverage,
       particles: engine.activeCount,
@@ -1152,6 +1156,10 @@ function animate(now) {
         shadowSteps: fluid.shadowMaterial.steps,
         updateRate: fluid.updateRate,
         slicesPerFrame: fluid.simulationSlicesPerFrame,
+        worldSize: volumeDiagnostics.worldSize.join('×'),
+        volumeExtentScale: volumeDiagnostics.volumeExtentScale,
+        launchSmokeEmissions: volumeDiagnostics.launchSmokeEmissions,
+        burstSmokeEmissions: volumeDiagnostics.burstSmokeEmissions,
       },
     });
     ui.setPerformanceGuard({ ...loadGuardState, postProcessing: runtimePostProcessing });

@@ -20,7 +20,14 @@ import {
 import { RENDER_LAYERS } from '../core/render-layers.js';
 
 const DEFAULT_GRID = Object.freeze({ x: 32, y: 24, z: 32 });
-const DEFAULT_SIZE = Object.freeze({ x: 58, y: 42, z: 46 });
+const BASE_VOLUME_SIZE = Object.freeze({ x: 58, y: 42, z: 46 });
+export const SMOKE_VOLUME_EXTENT_SCALE = 2;
+export const DEFAULT_VOLUME_SIZE = Object.freeze({
+  x: BASE_VOLUME_SIZE.x * SMOKE_VOLUME_EXTENT_SCALE,
+  y: BASE_VOLUME_SIZE.y * SMOKE_VOLUME_EXTENT_SCALE,
+  z: BASE_VOLUME_SIZE.z * SMOKE_VOLUME_EXTENT_SCALE,
+});
+const UP = new THREE.Vector3(0, 1, 0);
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
@@ -37,7 +44,7 @@ export class FluidVolume {
     this.nx = options.grid?.x ?? DEFAULT_GRID.x;
     this.ny = options.grid?.y ?? DEFAULT_GRID.y;
     this.nz = options.grid?.z ?? DEFAULT_GRID.z;
-    this.size = new THREE.Vector3(options.size?.x ?? DEFAULT_SIZE.x, options.size?.y ?? DEFAULT_SIZE.y, options.size?.z ?? DEFAULT_SIZE.z);
+    this.size = new THREE.Vector3(options.size?.x ?? DEFAULT_VOLUME_SIZE.x, options.size?.y ?? DEFAULT_VOLUME_SIZE.y, options.size?.z ?? DEFAULT_VOLUME_SIZE.z);
     this.center = new THREE.Vector3(0, this.size.y / 2, 0);
     this.cellCount = this.nx * this.ny * this.nz;
     this.density = new Float32Array(this.cellCount);
@@ -57,6 +64,8 @@ export class FluidVolume {
     this.impulsePool = [];
     this.emitterAllocations = 0;
     this.impulseAllocations = 0;
+    this.launchSmokeEmissions = 0;
+    this.burstSmokeEmissions = 0;
     this._gridPosition = { x: 0, y: 0, z: 0 };
     this._normalizedDirection = new THREE.Vector3();
     this.accumulator = 0;
@@ -90,7 +99,9 @@ export class FluidVolume {
     this.densityUniform = uniform(state.volume.smoke);
     this.scatteringUniform = uniform(state.volume.scattering);
     this.shadowUniform = uniform(state.volume.shadow);
-    this.fireIntensityUniform = uniform(1.2);
+    this.densityContrastUniform = uniform(state.volume.densityContrast ?? 1);
+    this.edgeSoftnessUniform = uniform(state.volume.edgeSoftness ?? 0.055);
+    this.fireIntensityUniform = uniform(state.volume.fireGlow ?? 1.2);
     this.fireWarmUniform = uniform(new THREE.Color(0xff9a4b));
     this.fireHotUniform = uniform(new THREE.Color(0xfff4ce));
 
@@ -98,10 +109,10 @@ export class FluidVolume {
     const getSample = ({ positionRay }) => {
       const uvw = positionRay.sub(this.centerUniform).div(this.worldSizeUniform).add(0.5).toVar();
       const sample = volumeTextureNode.sample(uvw).level(0);
-      let density = sample.r.mul(this.densityUniform).toVar();
+      let density = sample.r.mul(this.densityUniform).max(0).pow(this.densityContrastUniform).toVar();
       const temperature = sample.g;
       const edge = min(uvw, vec3(1).sub(uvw));
-      density.mulAssign(smoothstep(0, 0.055, min(edge.x, min(edge.y, edge.z))));
+      density.mulAssign(smoothstep(0, this.edgeSoftnessUniform, min(edge.x, min(edge.y, edge.z))));
       return { density, temperature, uvw };
     };
 
@@ -225,6 +236,33 @@ export class FluidVolume {
     return true;
   }
 
+  emitFireworkSmoke(position, phase, options = {}) {
+    const safeSmoke = clamp(Number.isFinite(Number(options.smoke)) ? Number(options.smoke) : 0, 0, 2.5);
+    if (!this.enabled || safeSmoke <= 0) return false;
+    const scale = clamp(Number.isFinite(Number(options.scale)) ? Number(options.scale) : 1, 0.35, 2.2);
+    const power = clamp(Number.isFinite(Number(options.power)) ? Number(options.power) : 1, 0.25, 4);
+    const brightness = clamp(Number.isFinite(Number(options.brightness)) ? Number(options.brightness) : 1, 0.1, 3);
+    const smokeStride = clamp(Math.round(Number(options.smokeStride) || 1), 1, 12);
+    const scaleRoot = Math.sqrt(scale);
+    const isLaunch = phase === 'launch';
+    const density = isLaunch
+      ? (safeSmoke * 1.4 * scaleRoot * Math.sqrt(power)) / smokeStride
+      : (safeSmoke * 3.2 * scale) / smokeStride;
+    const temperature = (isLaunch ? 1.3 : 1.9 * scaleRoot) * brightness;
+    const radius = (isLaunch ? 2.8 : 4.8) * scaleRoot;
+    const added = this.addEmitter(position, density, temperature, options.color ?? null, radius);
+    if (!added) return false;
+
+    if (isLaunch) {
+      this.launchSmokeEmissions += 1;
+      this.addImpulse(position, UP, { type: 'gust', radius: 4.5 * scaleRoot, strength: 8 * Math.sqrt(power) });
+    } else {
+      this.burstSmokeEmissions += 1;
+      this.addImpulse(position, UP, { type: 'repel', radius: 7.5 * scaleRoot, strength: 12 * scale });
+    }
+    return true;
+  }
+
   addImpulse(position, direction, options = {}) {
     if (!this.enabled || this.impulses.length >= 24) return false;
     let impulse = this.impulsePool.pop();
@@ -248,9 +286,10 @@ export class FluidVolume {
 
     for (const emitter of this.emitters) {
       const grid = this.worldToGrid(emitter.position);
-      const radiusX = Math.max(1, Math.ceil(emitter.radius / cellX));
-      const radiusY = Math.max(1, Math.ceil(emitter.radius / cellY));
-      const radiusZ = Math.max(1, Math.ceil(emitter.radius / cellZ));
+      const resolvedRadius = Math.max(emitter.radius, Math.hypot(cellX, cellY, cellZ) * 0.55);
+      const radiusX = Math.max(1, Math.ceil(resolvedRadius / cellX));
+      const radiusY = Math.max(1, Math.ceil(resolvedRadius / cellY));
+      const radiusZ = Math.max(1, Math.ceil(resolvedRadius / cellZ));
       for (let z = Math.max(0, Math.floor(grid.z - radiusZ)); z <= Math.min(this.nz - 1, Math.ceil(grid.z + radiusZ)); z += 1) {
         for (let y = Math.max(0, Math.floor(grid.y - radiusY)); y <= Math.min(this.ny - 1, Math.ceil(grid.y + radiusY)); y += 1) {
           for (let x = Math.max(0, Math.floor(grid.x - radiusX)); x <= Math.min(this.nx - 1, Math.ceil(grid.x + radiusX)); x += 1) {
@@ -258,8 +297,8 @@ export class FluidVolume {
             const dy = (y - grid.y) * cellY;
             const dz = (z - grid.z) * cellZ;
             const distance = Math.hypot(dx, dy, dz);
-            if (distance > emitter.radius) continue;
-            const weight = (1 - distance / emitter.radius) ** 2;
+            if (distance > resolvedRadius) continue;
+            const weight = (1 - distance / resolvedRadius) ** 2;
             const index = this.index(x, y, z);
             this.density[index] = Math.min(2.5, this.density[index] + emitter.density * weight * dt * 2.4);
             this.temperature[index] = Math.min(1.5, this.temperature[index] + emitter.temperature * weight * dt * 1.8);
@@ -421,6 +460,9 @@ export class FluidVolume {
     this.densityUniform.value = this.state.volume.smoke;
     this.scatteringUniform.value = this.state.volume.scattering;
     this.shadowUniform.value = this.state.volume.shadow;
+    this.densityContrastUniform.value = this.state.volume.densityContrast ?? 1;
+    this.edgeSoftnessUniform.value = this.state.volume.edgeSoftness ?? 0.055;
+    this.fireIntensityUniform.value = this.state.volume.fireGlow ?? 1.2;
     if (!this.enabled) return;
     this.accumulator += Math.min(0.05, dt);
     const step = 1 / this.updateRate;
@@ -487,6 +529,8 @@ export class FluidVolume {
     this.simulationJob = null;
     this.simulationCursorZ = 0;
     this.lastSimulationSlices = 0;
+    this.launchSmokeEmissions = 0;
+    this.burstSmokeEmissions = 0;
     this.uploadTexture();
   }
 
@@ -503,6 +547,10 @@ export class FluidVolume {
       impulsePoolSize: this.impulsePool.length,
       queuedImpulses: this.impulses.length,
       completedSteps: this.completedSteps,
+      worldSize: this.size.toArray(),
+      volumeExtentScale: SMOKE_VOLUME_EXTENT_SCALE,
+      launchSmokeEmissions: this.launchSmokeEmissions,
+      burstSmokeEmissions: this.burstSmokeEmissions,
     };
   }
 

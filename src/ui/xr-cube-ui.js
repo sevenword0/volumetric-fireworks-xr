@@ -13,12 +13,18 @@ import {
   MAX_LAUNCH_POSITION_RANGE,
   MAX_INITIAL_LAUNCH_POWER,
   MAX_POST_BURST_LIFETIME,
+  MAX_SMOKE_CONTRAST,
+  MAX_SMOKE_EDGE_SOFTNESS,
+  MAX_SMOKE_FIRE_GLOW,
   MIN_BOKEH_SAMPLES,
   MIN_CAMERA_FOV,
   MIN_LAUNCH_CENTER_X,
   MIN_LAUNCH_POSITION_RANGE,
   MIN_INITIAL_LAUNCH_POWER,
   MIN_POST_BURST_LIFETIME,
+  MIN_SMOKE_CONTRAST,
+  MIN_SMOKE_EDGE_SOFTNESS,
+  MIN_SMOKE_FIRE_GLOW,
 } from '../core/state.js';
 
 const FACE_SIZE = 0.128;
@@ -102,6 +108,9 @@ export class XRCubeUI extends EventTarget {
           { label: '바닥', value: () => this.state.world.floor.toUpperCase(), action: () => this.callbacks.nextFloor?.() },
           { label: '바닥 격자', value: () => this.state.world.floorGrid ? 'ON' : 'OFF', action: () => this.callbacks.toggleFloorGrid?.() },
           { label: '볼륨', value: () => this.state.volume.smoke > 0 ? 'ON' : 'OFF', action: () => this.callbacks.toggleVolume?.() },
+          { label: '연기 대비', value: () => this.state.volume.densityContrast.toFixed(2), action: () => this.adjust('volume.densityContrast', 0.25, MIN_SMOKE_CONTRAST, MAX_SMOKE_CONTRAST) },
+          { label: '경계 페더', value: () => this.state.volume.edgeSoftness.toFixed(3), action: () => this.adjust('volume.edgeSoftness', 0.025, MIN_SMOKE_EDGE_SOFTNESS, MAX_SMOKE_EDGE_SOFTNESS) },
+          { label: '화염 발광', value: () => this.state.volume.fireGlow.toFixed(2), action: () => this.adjust('volume.fireGlow', 0.25, MIN_SMOKE_FIRE_GLOW, MAX_SMOKE_FIRE_GLOW) },
           { label: '그림자', value: () => this.state.quality.shadows ? 'ON' : 'OFF', action: () => this.callbacks.toggleShadows?.() },
           { label: 'PC 화각', value: () => `${Math.round(this.state.camera.fov)}°`, action: () => this.adjust('camera.fov', 5, MIN_CAMERA_FOV, MAX_CAMERA_FOV) },
         ],

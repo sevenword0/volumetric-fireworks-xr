@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three/webgpu';
-import { FluidVolume } from '../src/volume/fluid-volume.js';
+import { DEFAULT_VOLUME_SIZE, FluidVolume, SMOKE_VOLUME_EXTENT_SCALE } from '../src/volume/fluid-volume.js';
 
 function createFluid(grid = { x: 8, y: 6, z: 8 }, overrides = {}) {
   const scene = { add() {}, remove() {} };
@@ -12,6 +12,53 @@ function createFluid(grid = { x: 8, y: 6, z: 8 }, overrides = {}) {
   };
   return new FluidVolume(scene, state, { grid });
 }
+
+test('default smoke domain doubles every world-space extent without increasing grid work', () => {
+  const fluid = createFluid();
+  assert.equal(SMOKE_VOLUME_EXTENT_SCALE, 2);
+  assert.deepEqual(fluid.size.toArray(), [DEFAULT_VOLUME_SIZE.x, DEFAULT_VOLUME_SIZE.y, DEFAULT_VOLUME_SIZE.z]);
+  assert.deepEqual(fluid.size.toArray(), [116, 84, 92]);
+  assert.deepEqual(fluid.center.toArray(), [0, 42, 0]);
+  assert.equal(fluid.cellCount, 8 * 6 * 8);
+  fluid.dispose();
+});
+
+test('smoke shader controls update live uniforms without recompiling raymarch materials', () => {
+  const fluid = createFluid(undefined, { volume: { densityContrast: 1.35, edgeSoftness: 0.09, fireGlow: 1.8 } });
+  assert.equal(fluid.densityContrastUniform.value, 1.35);
+  assert.equal(fluid.edgeSoftnessUniform.value, 0.09);
+  assert.equal(fluid.fireIntensityUniform.value, 1.8);
+  const material = fluid.material;
+  fluid.state.volume.densityContrast = 2.2;
+  fluid.state.volume.edgeSoftness = 0.035;
+  fluid.state.volume.fireGlow = 0.65;
+  fluid.update(0);
+  assert.equal(fluid.material, material);
+  assert.equal(fluid.densityContrastUniform.value, 2.2);
+  assert.equal(fluid.edgeSoftnessUniform.value, 0.035);
+  assert.equal(fluid.fireIntensityUniform.value, 0.65);
+  fluid.dispose();
+});
+
+test('launch and burst smoke use distinct pooled emission and impulse profiles', () => {
+  const fluid = createFluid();
+  const position = new THREE.Vector3(0, 21, 0);
+  assert.equal(fluid.emitFireworkSmoke(position, 'launch', { smoke: 0.8, scale: 1, power: 2, brightness: 1, smokeStride: 1 }), true);
+  const launchDensity = fluid.emitters[0].density;
+  const launchRadius = fluid.emitters[0].radius;
+  assert.equal(fluid.performanceDiagnostics.launchSmokeEmissions, 1);
+  assert.equal(fluid.performanceDiagnostics.queuedImpulses, 1);
+
+  assert.equal(fluid.emitFireworkSmoke(position, 'burst', { smoke: 0.8, scale: 1.4, brightness: 1, smokeStride: 1 }), true);
+  assert.ok(fluid.emitters[1].density > launchDensity);
+  assert.ok(fluid.emitters[1].radius > launchRadius);
+  assert.equal(fluid.performanceDiagnostics.burstSmokeEmissions, 1);
+  assert.equal(fluid.performanceDiagnostics.queuedImpulses, 2);
+  fluid.simulate(1 / 12);
+  assert.ok(fluid.density.some((value) => value > 0));
+  assert.equal(fluid.performanceDiagnostics.emitterPoolSize, 2);
+  fluid.dispose();
+});
 
 test('zero smoke starts with volume simulation and both raymarch meshes disabled', () => {
   const fluid = createFluid(undefined, { volume: { smoke: 0 } });
