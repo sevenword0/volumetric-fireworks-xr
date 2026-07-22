@@ -31,6 +31,10 @@
           <button class="icon-button settings-copy-button" id="settings-copy-button" type="button" data-copy-state="idle" aria-label="설정값 클립보드에 복사" title="현재 설정값 JSON 복사" aria-live="polite"><span aria-hidden="true">⧉</span></button>
           <button class="icon-button fullscreen-button" id="fullscreen-button" type="button" aria-label="전체화면 시작" title="전체화면 (F)"><span aria-hidden="true">⛶</span></button>
           <button class="icon-button" id="help-button" type="button" aria-label="도움말">?</button>
+          <a class="apk-button" id="quest-apk-download" href="https://github.com/sevenword0/volumetric-fireworks-quest3/releases/latest/download/PyroverseXR-Quest3.apk" target="_blank" rel="noopener" aria-label="Meta Quest 3 네이티브 APK 다운로드" title="Meta Quest 3/3S용 최신 네이티브 APK 다운로드">
+            <span class="apk-download-icon" aria-hidden="true">↓</span>
+            <span>QUEST APK</span>
+          </a>
           <button class="xr-button" id="xr-button" type="button" disabled>
             <span class="xr-cube-icon" aria-hidden="true"></span>
             <span>XR VIEW</span>
@@ -299,7 +303,10 @@
             <li><span>02</span> 중력·항력·바람·보텍스·충돌 상호작용</li>
             <li><span>03</span> 로컬 음악 분석 자동 큐 + XR 큐브 UI</li>
           </ul>
-          <button class="primary-button start-button" id="start-experience" type="button" disabled>스튜디오 시작 <span>→</span></button>
+          <div class="welcome-actions">
+            <button class="primary-button start-button" id="start-experience" type="button" disabled>스튜디오 시작 <span>→</span></button>
+            <a class="welcome-apk-button" id="quest-apk-download-welcome" href="https://github.com/sevenword0/volumetric-fireworks-quest3/releases/latest/download/PyroverseXR-Quest3.apk" target="_blank" rel="noopener"><span aria-hidden="true">↓</span> META QUEST 3 APK 다운로드</a>
+          </div>
           <small class="privacy-note">파일은 기기 밖으로 전송되지 않습니다</small>
         </div>
       </dialog>
