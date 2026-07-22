@@ -366,6 +366,42 @@ label[for]:focus-within {
   cursor: not-allowed;
 }
 
+.apk-button {
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 13px 0 11px;
+  border: 1px solid rgba(112, 255, 185, 0.34);
+  border-radius: 10px;
+  color: #aaffd3;
+  background: linear-gradient(135deg, rgba(36, 196, 135, 0.16), rgba(35, 154, 180, 0.1));
+  font-size: 9px;
+  font-weight: 780;
+  letter-spacing: 0.08em;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: color 160ms ease, border-color 160ms ease, background 160ms ease, transform 160ms ease;
+}
+
+.apk-button:hover {
+  color: white;
+  border-color: rgba(112, 255, 185, 0.72);
+  background: linear-gradient(135deg, rgba(36, 196, 135, 0.28), rgba(35, 154, 180, 0.18));
+  transform: translateY(-1px);
+}
+
+.apk-download-icon {
+  width: 16px;
+  height: 16px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  font-size: 11px;
+  line-height: 1;
+}
+
 .xr-cube-icon {
   width: 15px;
   height: 15px;
@@ -1613,6 +1649,34 @@ dialog::backdrop {
   filter: saturate(0.45);
 }
 
+.welcome-actions {
+  display: grid;
+  gap: 9px;
+}
+
+.welcome-apk-button {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border: 1px solid rgba(112, 255, 185, 0.34);
+  border-radius: 10px;
+  color: #aaffd3;
+  background: rgba(36, 196, 135, 0.08);
+  font-size: 10px;
+  font-weight: 760;
+  letter-spacing: 0.06em;
+  text-decoration: none;
+  transition: color 160ms ease, border-color 160ms ease, background 160ms ease;
+}
+
+.welcome-apk-button:hover {
+  color: white;
+  border-color: rgba(112, 255, 185, 0.68);
+  background: rgba(36, 196, 135, 0.16);
+}
+
 .privacy-note {
   margin-top: 10px;
   color: var(--dim);
@@ -1743,6 +1807,8 @@ body.ui-hidden .ui-visibility-button {
   #help-button { display: none; }
   .xr-button { padding-inline: 10px; }
   .xr-button > span:last-child { display: none; }
+  .apk-button { width: 36px; padding: 0; justify-content: center; }
+  .apk-button > span:last-child { display: none; }
   .panel { top: auto; right: 7px; bottom: 7px; left: 7px; width: auto; height: min(62vh, 520px); border-radius: 17px; transform: translateY(calc(100% - 58px)); }
   .panel-left.collapsed,
   .panel-right,
@@ -1786,7 +1852,8 @@ body.ui-hidden .ui-visibility-button {
   .telemetry .optimization-status { min-width: 76px; }
   .top-actions { gap: 3px; }
   .top-actions .icon-button,
-  .xr-button { width: 31px; padding: 0; justify-content: center; }
+  .xr-button,
+  .apk-button { width: 31px; padding: 0; justify-content: center; }
   .brand-mark { display: none; }
   .brand { gap: 0; }
   .preset-grid { grid-template-columns: 1fr 1fr; }
